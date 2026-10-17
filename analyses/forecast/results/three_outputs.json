@@ -1,0 +1,414 @@
+{
+ "days": [
+  {
+   "t": 1502,
+   "date": "2001-12-13",
+   "season": "NE monsoon",
+   "cloud_frac": 0.6199460916442048,
+   "obs_frac_tm1": 0.39754417490266547,
+   "obs_frac_tp1": 0.27900569032644507
+  },
+  {
+   "t": 3456,
+   "date": "2007-04-20",
+   "season": "spring inter-monsoon",
+   "cloud_frac": 0.47109913147648996,
+   "obs_frac_tm1": 0.44630128781072176,
+   "obs_frac_tp1": 0.4471398622342019
+  },
+  {
+   "t": 5836,
+   "date": "2013-10-25",
+   "season": "fall inter-monsoon",
+   "cloud_frac": 0.6233003893381253,
+   "obs_frac_tm1": 0.4005390835579515,
+   "obs_frac_tp1": 0.44426474992512727
+  },
+  {
+   "t": 7415,
+   "date": "2018-02-20",
+   "season": "NE monsoon",
+   "cloud_frac": 0.43551961665169214,
+   "obs_frac_tm1": 0.6288709194369572,
+   "obs_frac_tp1": 0.4740341419586703
+  }
+ ],
+ "models": {
+  "gapfill": {
+   "run": "t3d_dil_c4_60ep_gdl100",
+   "donor_exclude": 0,
+   "context_clouds": "persist",
+   "max_abs_diff_day_t": 0.0049620866775512695,
+   "per_day": [
+    {
+     "date": "2001-12-13",
+     "max_abs_diff_day_t": 0.0023611783981323242,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2001-12-12",
+       "scored": "all observed pixels",
+       "mae": 0.08138063549995422,
+       "n": 6637,
+       "n_input": 3328,
+       "mae_not_input": 0.0955977812409401,
+       "n_not_input": 3309,
+       "mae_climatology": 0.2348199188709259,
+       "out_minus_clim_mean": -0.02472289465367794,
+       "out_minus_clim_sd": 0.24613553285598755
+      },
+      {
+       "offset": 0,
+       "date": "2001-12-13",
+       "scored": "hidden day-t pixels",
+       "mae": 0.10338543355464935,
+       "n": 3636,
+       "n_input": 0,
+       "mae_not_input": 0.10338543355464935,
+       "n_not_input": 3636,
+       "mae_climatology": 0.2010437250137329,
+       "out_minus_clim_mean": -0.016614241525530815,
+       "out_minus_clim_sd": 0.255951851606369
+      },
+      {
+       "offset": 1,
+       "date": "2001-12-14",
+       "scored": "all observed pixels",
+       "mae": 0.08069193363189697,
+       "n": 4658,
+       "n_input": 2168,
+       "mae_not_input": 0.09015415608882904,
+       "n_not_input": 2490,
+       "mae_climatology": 0.22444385290145874,
+       "out_minus_clim_mean": 0.0019522494403645396,
+       "out_minus_clim_sd": 0.25036031007766724
+      }
+     ]
+    },
+    {
+     "date": "2007-04-20",
+     "max_abs_diff_day_t": 0.002171158790588379,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2007-04-19",
+       "scored": "all observed pixels",
+       "mae": 0.05628783255815506,
+       "n": 7451,
+       "n_input": 2913,
+       "mae_not_input": 0.06429799646139145,
+       "n_not_input": 4538,
+       "mae_climatology": 0.210862398147583,
+       "out_minus_clim_mean": -0.14519570767879486,
+       "out_minus_clim_sd": 0.1997414082288742
+      },
+      {
+       "offset": 0,
+       "date": "2007-04-20",
+       "scored": "hidden day-t pixels",
+       "mae": 0.057744864374399185,
+       "n": 5986,
+       "n_input": 0,
+       "mae_not_input": 0.057744864374399185,
+       "n_not_input": 5986,
+       "mae_climatology": 0.19952277839183807,
+       "out_minus_clim_mean": -0.1588107943534851,
+       "out_minus_clim_sd": 0.19448734819889069
+      },
+      {
+       "offset": 1,
+       "date": "2007-04-21",
+       "scored": "all observed pixels",
+       "mae": 0.05521884560585022,
+       "n": 7465,
+       "n_input": 2511,
+       "mae_not_input": 0.06448053568601608,
+       "n_not_input": 4954,
+       "mae_climatology": 0.19826394319534302,
+       "out_minus_clim_mean": -0.1687144786119461,
+       "out_minus_clim_sd": 0.18288761377334595
+      }
+     ]
+    },
+    {
+     "date": "2013-10-25",
+     "max_abs_diff_day_t": 0.0035276412963867188,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2013-10-24",
+       "scored": "all observed pixels",
+       "mae": 0.08705645054578781,
+       "n": 6687,
+       "n_input": 4031,
+       "mae_not_input": 0.12421677261590958,
+       "n_not_input": 2656,
+       "mae_climatology": 0.29892024397850037,
+       "out_minus_clim_mean": 0.032235898077487946,
+       "out_minus_clim_sd": 0.3210372030735016
+      },
+      {
+       "offset": 0,
+       "date": "2013-10-25",
+       "scored": "hidden day-t pixels",
+       "mae": 0.08902381360530853,
+       "n": 3144,
+       "n_input": 0,
+       "mae_not_input": 0.08902381360530853,
+       "n_not_input": 3144,
+       "mae_climatology": 0.26467934250831604,
+       "out_minus_clim_mean": 0.019230568781495094,
+       "out_minus_clim_sd": 0.3200962245464325
+      },
+      {
+       "offset": 1,
+       "date": "2013-10-26",
+       "scored": "all observed pixels",
+       "mae": 0.08052894473075867,
+       "n": 7417,
+       "n_input": 4191,
+       "mae_not_input": 0.1106799840927124,
+       "n_not_input": 3226,
+       "mae_climatology": 0.26560521125793457,
+       "out_minus_clim_mean": 0.015609484165906906,
+       "out_minus_clim_sd": 0.31023016571998596
+      }
+     ]
+    },
+    {
+     "date": "2018-02-20",
+     "max_abs_diff_day_t": 0.0049620866775512695,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2018-02-19",
+       "scored": "all observed pixels",
+       "mae": 0.10343894362449646,
+       "n": 10499,
+       "n_input": 4383,
+       "mae_not_input": 0.11863775551319122,
+       "n_not_input": 6116,
+       "mae_climatology": 0.2472136914730072,
+       "out_minus_clim_mean": 0.004758582450449467,
+       "out_minus_clim_sd": 0.2942366302013397
+      },
+      {
+       "offset": 0,
+       "date": "2018-02-20",
+       "scored": "hidden day-t pixels",
+       "mae": 0.0866570994257927,
+       "n": 4684,
+       "n_input": 0,
+       "mae_not_input": 0.0866570994257927,
+       "n_not_input": 4684,
+       "mae_climatology": 0.18888913094997406,
+       "out_minus_clim_mean": 0.008761371485888958,
+       "out_minus_clim_sd": 0.34691816568374634
+      },
+      {
+       "offset": 1,
+       "date": "2018-02-21",
+       "scored": "all observed pixels",
+       "mae": 0.10926806181669235,
+       "n": 7914,
+       "n_input": 4529,
+       "mae_not_input": 0.10206338763237,
+       "n_not_input": 3385,
+       "mae_climatology": 0.28908175230026245,
+       "out_minus_clim_mean": 0.011367225088179111,
+       "out_minus_clim_sd": 0.32827121019363403
+      }
+     ]
+    }
+   ]
+  },
+  "nowcast": {
+   "run": "t3d_nc_b8",
+   "donor_exclude": 8,
+   "context_clouds": "none",
+   "max_abs_diff_day_t": 0.003956794738769531,
+   "per_day": [
+    {
+     "date": "2001-12-13",
+     "max_abs_diff_day_t": 0.0026568174362182617,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2001-12-12",
+       "scored": "all observed pixels",
+       "mae": 0.3220447599887848,
+       "n": 6637,
+       "n_input": 6637,
+       "mae_not_input": null,
+       "n_not_input": 0,
+       "mae_climatology": 0.2348199188709259,
+       "out_minus_clim_mean": 0.03420048952102661,
+       "out_minus_clim_sd": 0.09846631437540054
+      },
+      {
+       "offset": 0,
+       "date": "2001-12-13",
+       "scored": "hidden day-t pixels",
+       "mae": 0.10143165290355682,
+       "n": 3636,
+       "n_input": 0,
+       "mae_not_input": 0.10143165290355682,
+       "n_not_input": 3636,
+       "mae_climatology": 0.2010437250137329,
+       "out_minus_clim_mean": -0.004154457710683346,
+       "out_minus_clim_sd": 0.2628030478954315
+      },
+      {
+       "offset": 1,
+       "date": "2001-12-14",
+       "scored": "all observed pixels",
+       "mae": 0.2523807883262634,
+       "n": 4658,
+       "n_input": 0,
+       "mae_not_input": 0.2523807883262634,
+       "n_not_input": 4658,
+       "mae_climatology": 0.22444385290145874,
+       "out_minus_clim_mean": -0.14544250071048737,
+       "out_minus_clim_sd": 0.062286343425512314
+      }
+     ]
+    },
+    {
+     "date": "2007-04-20",
+     "max_abs_diff_day_t": 0.001817464828491211,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2007-04-19",
+       "scored": "all observed pixels",
+       "mae": 0.3052719235420227,
+       "n": 7451,
+       "n_input": 7451,
+       "mae_not_input": null,
+       "n_not_input": 0,
+       "mae_climatology": 0.210862398147583,
+       "out_minus_clim_mean": 0.09516417980194092,
+       "out_minus_clim_sd": 0.07240757346153259
+      },
+      {
+       "offset": 0,
+       "date": "2007-04-20",
+       "scored": "hidden day-t pixels",
+       "mae": 0.05228451266884804,
+       "n": 5986,
+       "n_input": 0,
+       "mae_not_input": 0.05228451266884804,
+       "n_not_input": 5986,
+       "mae_climatology": 0.19952277839183807,
+       "out_minus_clim_mean": -0.14631597697734833,
+       "out_minus_clim_sd": 0.20556475222110748
+      },
+      {
+       "offset": 1,
+       "date": "2007-04-21",
+       "scored": "all observed pixels",
+       "mae": 0.15691442787647247,
+       "n": 7465,
+       "n_input": 0,
+       "mae_not_input": 0.15691442787647247,
+       "n_not_input": 7465,
+       "mae_climatology": 0.19826394319534302,
+       "out_minus_clim_mean": -0.1321069896221161,
+       "out_minus_clim_sd": 0.0750894844532013
+      }
+     ]
+    },
+    {
+     "date": "2013-10-25",
+     "max_abs_diff_day_t": 0.003956794738769531,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2013-10-24",
+       "scored": "all observed pixels",
+       "mae": 0.38274049758911133,
+       "n": 6687,
+       "n_input": 6687,
+       "mae_not_input": null,
+       "n_not_input": 0,
+       "mae_climatology": 0.29892024397850037,
+       "out_minus_clim_mean": 0.023530753329396248,
+       "out_minus_clim_sd": 0.10951891541481018
+      },
+      {
+       "offset": 0,
+       "date": "2013-10-25",
+       "scored": "hidden day-t pixels",
+       "mae": 0.08904698491096497,
+       "n": 3144,
+       "n_input": 0,
+       "mae_not_input": 0.08904698491096497,
+       "n_not_input": 3144,
+       "mae_climatology": 0.26467934250831604,
+       "out_minus_clim_mean": 0.020203081890940666,
+       "out_minus_clim_sd": 0.3152127265930176
+      },
+      {
+       "offset": 1,
+       "date": "2013-10-26",
+       "scored": "all observed pixels",
+       "mae": 0.29634904861450195,
+       "n": 7417,
+       "n_input": 0,
+       "mae_not_input": 0.29634904861450195,
+       "n_not_input": 7417,
+       "mae_climatology": 0.26560521125793457,
+       "out_minus_clim_mean": -0.13060781359672546,
+       "out_minus_clim_sd": 0.08153606951236725
+      }
+     ]
+    },
+    {
+     "date": "2018-02-20",
+     "max_abs_diff_day_t": 0.003456592559814453,
+     "channels": [
+      {
+       "offset": -1,
+       "date": "2018-02-19",
+       "scored": "all observed pixels",
+       "mae": 0.3340124785900116,
+       "n": 10499,
+       "n_input": 10499,
+       "mae_not_input": null,
+       "n_not_input": 0,
+       "mae_climatology": 0.2472136914730072,
+       "out_minus_clim_mean": 0.03692413493990898,
+       "out_minus_clim_sd": 0.1290905922651291
+      },
+      {
+       "offset": 0,
+       "date": "2018-02-20",
+       "scored": "hidden day-t pixels",
+       "mae": 0.08589548617601395,
+       "n": 4684,
+       "n_input": 0,
+       "mae_not_input": 0.08589548617601395,
+       "n_not_input": 4684,
+       "mae_climatology": 0.18888913094997406,
+       "out_minus_clim_mean": 0.0077866665087640285,
+       "out_minus_clim_sd": 0.3372425138950348
+      },
+      {
+       "offset": 1,
+       "date": "2018-02-21",
+       "scored": "all observed pixels",
+       "mae": 0.3252752423286438,
+       "n": 7914,
+       "n_input": 0,
+       "mae_not_input": 0.3252752423286438,
+       "n_not_input": 7914,
+       "mae_climatology": 0.28908175230026245,
+       "out_minus_clim_mean": -0.12876790761947632,
+       "out_minus_clim_sd": 0.07371250540018082
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

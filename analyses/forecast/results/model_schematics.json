@@ -1,0 +1,95 @@
+{
+ "day": "2018-02-20",
+ "fractions": {
+  "real_cloud_frac_ocean": 0.43551961665169214,
+  "observed_frac_ocean": 0.5644803833483079,
+  "fake_cloud_frac_of_observed": 0.4970288624787776,
+  "fake_cloud_frac_ocean": 0.2805630428271938,
+  "past_observed_frac_ocean": {
+   "t-8": 0.7002695417789757,
+   "t-7": 0.5151841868823,
+   "t-6": 0.5130877508235999,
+   "t-5": 0.6097035040431267,
+   "t-4": 0.5901766996106619,
+   "t-3": 0.5719676549865229,
+   "t-2": 0.607067984426475,
+   "t-1": 0.6288709194369572
+  }
+ },
+ "checks": {
+  "chl_norm_matches_config": true,
+  "forecast_day_t_visible_mask": "zero (no day-t CHL)",
+  "forecast_val_mae_preds_vs_metrics_json": [
+   0.12850190699100494,
+   0.12850111722946167
+  ],
+  "nowcast_hidden_equals_clouds_fixed_hidden_all_val_days": true,
+  "nowcast_day_t_visible_mask": "observed & ~hidden",
+  "nowcast_val_mae_preds_vs_metrics_json": [
+   0.10900677740573883,
+   0.10900604724884033
+  ]
+ },
+ "reweight": {
+  "real_cloud_mix_val": {
+   "1 d": 0.2131521083486668,
+   "2-3 d": 0.234305045537943,
+   "4-8 d": 0.2441805994519467,
+   "none": 0.30836224666144346
+  },
+  "fake_cloud_mix_val": {
+   "1 d": 0.49099722811992197,
+   "2-3 d": 0.27368418531336697,
+   "4-8 d": 0.1590125424230188,
+   "none": 0.07630604414369226
+  },
+  "reweighted_val_mae": {
+   "nowcast": 0.11336203160811825,
+   "forecast": 0.13288649157435137,
+   "persistence": 0.20083339382923784,
+   "climatology": 0.2510102011608141
+  }
+ },
+ "example_mae": {
+  "forecast": {
+   "mae": 0.1480250507593155,
+   "n": 9424
+  },
+  "nowcast": {
+   "mae": 0.08591026812791824,
+   "n": 4684
+  }
+ },
+ "shapes": {
+  "forecast": {
+   "per_day": [
+    1,
+    11,
+    9,
+    149,
+    181
+   ],
+   "static": [
+    1,
+    7,
+    149,
+    181
+   ]
+  },
+  "nowcast": {
+   "per_day": [
+    1,
+    11,
+    9,
+    149,
+    181
+   ],
+   "static": [
+    1,
+    7,
+    149,
+    181
+   ]
+  }
+ }
+}

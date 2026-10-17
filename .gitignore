@@ -1,0 +1,37 @@
+# --- trained runs: weights, predictions, per-run figures and logs (models/<category>/<run>/...)
+# Kept: the generated run index (RUNS.md), see `python -m chl_cnn.runs_index`
+models/**
+!models/
+!models/RUNS.md
+!models/history/
+!models/history/RUNS.md
+
+# --- data and large arrays (stores live outside the repo, in ~/mind_the_chl_gap/data)
+data/
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.nc
+*.zarr/
+*.h5
+*.hdf5
+*.parquet
+
+# --- logs and run outputs
+*.log
+tb/
+events.out.tfevents.*
+wandb/
+
+# --- python / jupyter / editor clutter
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.vscode/
+.DS_Store
+*.swp
+
+# small analysis inputs
+!analyses/blk/regions.npy
