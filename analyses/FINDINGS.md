@@ -173,3 +173,345 @@ Every run with its settings and scores, generated: [models/RUNS.md](../models/RU
 - lr 1e-4 restart: periodic val 0.1524 (ep 1), 0.1527 (10), 0.1503 (20), 0.1506 (30), 0.1506 (40), 0.1501 (50); best epoch 42. Change in best val vs its start: -0.0001.
 - Day-of-year climatology on the same val days: 0.3583.
 - `--continue-from RUN` (train_pinn.py): loads RUN's resume.pt (model, AdamW, GradScaler), fresh cosine schedule from --lr. Single seed throughout.
+
+## Gradient diagnosis, Black Sea 4 km best run (2026-10-17; analyses/blk4/gradient_diagnosis.py)
+- Val, blk4_..._cont50_lr1e-4_cont50 (lam0_b16_50ep in brackets). Trainer definition reproduced exactly (ratio 0.5407, corr 0.6577, 2,067,873 lag-1 pairs).
+- By pair visibility: both visible 0.952 (0.876), exactly one hidden 0.784 (0.727), both hidden 0.518 (0.509); 92 % of scored pairs are both-hidden.
+- By lag 5 / 9 / 18 / 36 / 72 km: ratio 0.541 / 0.602 / 0.676 / 0.748 / 0.815; corr 0.658 / 0.737 / 0.811 / 0.873 / 0.922.
+- By distance of hidden pixel to nearest visible: 1 px 0.752, 2-3 0.601, 4-7 0.516, 8-15 0.493, 16+ 0.480.
+- By region: shelves 0.66-0.71; Azov 0.52, Marmara 0.54; open sea 0.44-0.46 (lowest ratio, lowest MAE).
+- |grad ln CHL| vs |grad SST| on observed px: Pearson 0.14 (1x1), 0.12 (2x2), 0.08 (4x4); vs current speed -0.04 to -0.06. Ratio by |grad SST| decile 0.476 (D1) to 0.558 (D10).
+- Same pairs: DOY climatology ratio 0.533 / corr 0.532; persistence (truth t-1, 1.23 M pairs) 0.988 / 0.538.
+
+## Black Sea 4 km + --geo-static (bathymetry, 8 river distances, physics-ok mask; 2026-10-18)
+- Same recipe as the b16_50ep runs (single seed each), + 10 static channels. Val / test MAE, grad ratio / corr (val):
+  - lam0: 0.1561 / 0.1509, 0.527 / 0.642 -> geo 0.1556 / 0.1478, 0.533 / 0.643 (val -0.0005, test -0.0031)
+  - lam0.3: 0.1546 / 0.1490, 0.522 / 0.643 -> geo 0.1536 / 0.1504, 0.521 / 0.642 (val -0.0010, test +0.0014)
+- By region (val, geo - base, lam0 / lam0.3): NW shelf -0.0016 / +0.0011; W open +0.0014 / +0.0002; E open -0.0005 / -0.0019; Anatolian +0.0003 / -0.0035; Crimea/Caucasus -0.0067 / +0.0010; Azov -0.0059 / -0.0027; Marmara +0.0069 / -0.0022. Sign agrees between the two lambdas only for E open sea and Azov. Script analyses/blk4/geo_static_by_region.py.
+- Best epoch 47 in all four; peak GPU 16.4 GB reserved with and without.
+
+## Black Sea 4 km, wider backbone (blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_w96; 2026-10-18)
+- lam0p3_b16_50ep recipe with --width 96 (stem 32; 1.41 M params vs 0.66 M; 19.7 GB reserved; 74 min vs 52 min). Single seed.
+- Val / test MAE 0.1527 / 0.1480 vs 0.1546 / 0.1490 (w64): -0.0019 / -0.0010. RMSE 0.2456 vs 0.2492; bias -0.014 both; visible-pixel MAE 0.0971 vs 0.0997; grad ratio / corr 0.530 / 0.649 vs 0.522 / 0.643. Best epoch 47 in both.
+- Periodic val at epochs 10 / 20 / 30 / 40: 0.1960 / 0.1729 / 0.1627 / 0.1566 vs 0.2045 / 0.1744 / 0.1641 / 0.1572.
+- Smoke memory (batch 16 unless noted): w96 + stem 48 22.3 GB reserved (not run); w128 stem 32 batch 12 17.9 GB.
+
+## UDE stage B (Black Sea 2 km, learned advection factor; runs 2026-10-12, logged 2026-10-18)
+- udeB_* = udeA recipe (--store blk --crop --chl-max 100 --ic fill --lead 3, 4 epochs, train stride 4, val 178 t0) with --transport sl --adv-scale scalar --adv-init 0.25. Table: analyses/ude/stageB_summary.py (figures analyses/ude/figures/stageB_*.png).
+- Learned current factor alpha ended at 0.167 (transport only), 0.131 (+ mlp source), 0.127 (+ relax).
+- Val MAE lead 1/2/3: transport only 0.2125/0.2411/0.2543; transport alpha=1 0.2207/0.2566/0.2745; persistence 0.2142/0.2433/0.2566; mlp + transport 0.2003/0.2332/0.2513 vs mlp without transport (udeA_mlp) 0.2015/0.2356/0.2542; conv without transport (udeA_conv) 0.2007/0.2291/0.2450. n obs 7.47/7.40/7.34 M.
+- Grad ratio/corr at lead 1: persistence 0.859/0.261; transport only 0.767/0.273; mlp + transport 0.674/0.307.
+
+## Gradient calibration and input screening, Black Sea 4 km (2026-10-18; analyses/blk4/gradient_calibration.py)
+- Best run, val, trainer's lag-1 pairs: OLS slope of Δtruth on Δpred 1.078 [1.059, 1.095] (r 0.658, n 2.07 M); by lag 2/4/8/16 px 1.096/1.101/1.093/1.069; by distance to visible 1.05 (1 px) to 1.11 (16+ px); by region 1.04-1.11.
+- Post-hoc high-pass gain pred' = blur + g (pred - blur): best g 1.2 on val (sigma 1 and 2 px); test MAE 0.14300 -> 0.14293 (sigma 1) / 0.14284 (sigma 2); val MAE rises above g = 1.4-1.5.
+- |∇field| vs |∇ln CHL| on observed px (val + every 8th train day), Pearson, no coastal band / >8 px from land: SST 0.137 / 0.056; SLA -0.022 / -0.033; current speed 0.107 / 0.017; vorticity 0.158 / 0.055; strain 0.146 / 0.050; ln CHL t-1 (control) 0.708 / 0.580. With ±1 px tolerance: vorticity 0.193, SST 0.154 (no band).
+- Gradient direction mean |cos| (2/π = 0.637 for random directions, null not validated on this grid): SST 0.709, SLA 0.716, speed 0.691, vorticity 0.681, strain 0.673, ln CHL t-1 0.792.
+
+## Observed CHL feature motion vs currents, Black Sea 4 km (2026-10-18; analyses/blk4/chl_motion.py)
+- Block matching of ln CHL between consecutive days, 16x16 px tiles (≈72 km), search ±6 px, 2014-2024; accepted tiles (peak r ≥ 0.6, not on window edge, non-zero shift significant vs zero shift) 18,110 of 57,428 candidates (16,861 with currents) on 2,296 days. Accepted tiles only in NW shelf (3,067), W open (6,884), E open (6,910); 0 in the other four regions; DJF 538.
+- 48 % of accepted tiles have a zero best shift; only 5.7 % of those have |d_cur| < 0.5 px/day. Median |d_obs| 1.43, |d_cur| 1.88, |d_geo| (geostrophic from zos) 1.40 px/day.
+- OLS slope of observed shift on current, east / north: 0.57 / 0.51 (R² 0.38 / 0.24); geostrophic 0.74 / 0.59. Shuffled-day current 0.36 / 0.23. Ambiguous tiles counted as zero: 0.21 / 0.19; no significance test: 0.46 / 0.41; T8 tiles 0.43 / 0.34.
+- Direction: mean resultant length 0.65 (current, mean offset -2.6°), 0.67 (geostrophic, +10.9°), 0.42 shuffled.
+- By region (current slope e / n): NW shelf 0.30 / 0.16, W open 0.56 / 0.55, E open 0.64 / 0.48. By season: DJF 0.36 / 0.33, MAM 0.60 / 0.53, JJA 0.61 / 0.56, SON 0.51 / 0.45.
+- Lag 2 vs lag 1 (same tiles, n 5,577): median |d_obs| ratio 1.83; slope 1.28 / 1.12.
+- Reference: UDE stage B learned factor 0.13-0.17 (2 km, semi-Lagrangian loss).
+
+## blk4 store: rsntds and friver added (2026-10-18; chl_cnn/store_blk4_extra.py, scripts/fetch_cmems.py --what extra)
+- Source CMEMS BS reanalysis (E4R1, v202411): hflux rsntds (net downward shortwave, W m-2) and wflux friver (river freshwater flux, kg m-2 s-1). Files rsntds.npy (float16) and friver.npy (float32), (3997, 197, 275), store day axis. +1.24 GB.
+- rsntds: same chain as the other physics (interp to 2 km, 2x2 mean); basin mean ~45 (Dec-Jan) to ~310 W m-2 (day ~180); all-NaN in the source on 2024-10-16..20 (5 days).
+- friver: conservative snap of each source mouth cell to the nearest 4 km ocean pixel (78 cells -> 76 px; daily basin total preserved to 3e-8; linear + 2x2 mean would lose 14-26 %). Mean inflow Danube 5,859 m3/s (daily-varying), Dnieper-Bug 1,476, Kizilirmak 539, Dniester 353, Sakarya 196, unnamed sources 1,593; non-Danube rivers follow a smooth repeating annual cycle. No source cell near the river_names.json Rioni mouth (nearest 54 km) or Kerch (84 km).
+- Check figure analyses/blk4/figures/extra_vars_check.png.
+
+## Learned Lagrangian tracer, step 1: velocity terms only (Black Sea 4 km; 2026-10-18; chl_cnn/train_tracer.py, tracer.py)
+- Model: ln C(x, t+k) = ln C_obs at the backward-RK2 departure point on day t (4 sub-steps/day, daily fields linear in time, bilinear sampling, |u| components clipped at 10 px/day); u_eff = a(x,s) u_rea + b(x,s) u_geo + w(s) tau (complex doy-harmonic coefficient: c = |w|, theta = arg w). a in (0, 1.5), init 0.25; b in (-0.5, 1.5), init 0; w init 0. No source, no CHL input to velocity, no filling. Valid: trajectory never samples (ocean & finite reanalysis current) < 0.99, departure-point observed fraction >= 0.99. Loss L1, leads 1-5 equal weights. Start days need t..t+5 consecutive calendar days (store keeps only days with CHL; 18 gaps). Train 2,449 starts, val 351 (every 2nd val start, 2017+2021). 20 epochs, batch 16, 3,060 Adam steps, 13-15 min/run, peak 7.1 GB. Test years not scored.
+- Synthetic checks (chl_cnn/test_tracer.py): uniform velocity displacement error <= 6e-5 px at k = 5; linear-in-time velocity exact; solid-body rotation error max 5e-4 px (n_sub 4, k = 5, 18 px displacement); learned factor recovers 0.997 (true 1.0, init 0.25); learned uniform velocity (3.001, 2.001) vs (3, 2) px/day.
+- At init the model equals the x0.25 baseline to 4 decimals (consistency check).
+- Val MAE, common set (target observed, model + persistence + x1.0 + x0.25 + clim all valid), leads 1-5; n 1.76 / 1.48 / 1.37 / 1.34 / 1.29 M (rea+geo+wind run):
+
+| predictor | l1 | l2 | l3 | l4 | l5 |
+|---|---|---|---|---|---|
+| rea (tr_rea) | 0.1601 | 0.1924 | 0.2182 | 0.2356 | 0.2436 |
+| rea+geo (tr_rea_geo) | 0.1599 | 0.1921 | 0.2179 | 0.2350 | 0.2433 |
+| rea+geo+wind (tr_rea_geo_wind) | 0.1596 | 0.1916 | 0.2174 | 0.2346 | 0.2428 |
+| adv x0.25 | 0.1594 | 0.1923 | 0.2186 | 0.2360 | 0.2446 |
+| persistence | 0.1640 | 0.1967 | 0.2221 | 0.2395 | 0.2470 |
+| adv x1.0 | 0.1703 | 0.2126 | 0.2439 | 0.2664 | 0.2765 |
+| DOY clim | 0.3651 | 0.3855 | 0.3722 | 0.3811 | 0.3673 |
+
+(baseline rows: tr_rea_geo_wind's common set; the other runs' sets differ by < 0.5 % of pixels and baselines by <= 0.0002.)
+- Gating, best model (rea+geo+wind) minus baseline, leads 1-4: vs persistence -0.0044 / -0.0051 / -0.0047 / -0.0049; vs x0.25 +0.0002 / -0.0007 / -0.0012 / -0.0014. rea only vs x0.25: +0.0005 / -0.0001 / -0.0005 / -0.0005. Single seed; no repeat to size run-to-run noise.
+- Own sets (each predictor where valid), lead 1 MAE (n): model 0.1633 (1.90 M), x0.25 0.1626 (1.89 M), x1.0 0.1720 (1.87 M), persistence 0.1838 (2.32 M), clim 0.3580 (3.80 M). Persistence's own set includes Azov and coastal pixels without valid trajectories.
+- Learned factors (ocean mean over val days, mean / sd): a 0.160 / 0.023 (rea), 0.171 / 0.026 (rea+geo), 0.169 / 0.015 (rea+geo+wind); b 0.003 / 0.022 and 0.019 / 0.017. a stops moving after epoch 1 (0.15-0.17 every epoch). Spatial a maps differ between the three runs (e.g. July maximum along 43-44 N in rea and rea+geo+wind, on the NW shelf in rea+geo; rea+geo+wind a ~0 in the SE basin in July / October). Seasonal ocean-mean a 0.14-0.21, highest May-July in the rea and rea+geo runs; b 0 to 0.045, highest Aug.
+- Wind: c 0.03 (Oct) to 0.17 (Apr) m/s per Pa, theta -131 to -144 deg (clockwise ~140 deg from tau). Median |tau| over ocean 0.037 Pa (p90 0.136) -> median wind term ~0.006 m/s (~0.1 px/day) vs ~0.46 px/day mean |u_eff|.
+- Gradient ratio / corr at lead 1, common-set pairs, lag 1 / 4 / 16 px (rea+geo+wind): model 0.896/0.514, 0.968/0.720, 0.984/0.885; x0.25 0.893/0.515, 0.969/0.721, 0.986/0.886; persistence 1.004/0.463, 1.003/0.688, 0.992/0.873; x1.0 0.982/0.401, 1.014/0.641, 1.006/0.859; clim 0.467/0.428, 0.544/0.515, 0.716/0.666 (3.25 / 2.83 / 2.10 M pairs).
+- Lead-1 MAE by region, common set (rea+geo+wind / x0.25 / persistence, n): NW shelf 0.2028 / 0.2032 / 0.2104 (308 k); W open 0.1387 / 0.1388 / 0.1425 (600 k); E open 0.1557 / 0.1553 / 0.1593 (797 k); Anatolian 0.2206 / 0.2176 / 0.2254 (30 k); Crimea/Caucasus 0.1812 / 0.1790 / 0.1843 (24 k); Marmara 0.2355 / 0.2244 / 0.2390 (272 px); Azov 0 px (no reanalysis currents).
+- Direction vs the 2 km forecast baselines (2026-10-10): same ordering x0.25 < persistence < x1.0 at every lead; learned a 0.16-0.17 vs stage B 0.13-0.17 at 2 km.
+- Tables analyses/tracer/results/step1_tables.md; figures analyses/tracer/figures/step1_{mae_vs_lead,gain_vs_lead,factor_map_a,factor_map_b,seasonal_factors,training_curves}.png (analyses/tracer/tracer_report.py).
+
+## Spectral CHL motion and scale-dependent coherence, Black Sea 4 km (2026-10-18; analyses/blk4/spectral_motion.py)
+- Method: 32 x 32 px patches (~145 km), stride 16, aligned with the chl_motion 16 px tile grid (91 of 176 positions >= 50 % ocean); day pairs t, t+k (k = 1, 2, 3 consecutive calendar days; 11,877 pairs + 3,941 random-day null pairs); Hann window; masked weighted NCC (Padfield 2012) on patches >= 50 % observed on both days, search +-6/9/12 px, parabolic sub-pixel, accept peak r >= 0.6 and not on edge; phase correlation on >= 90 % clear patches as cross-check. Full run 183 s CPU (pairs 67 s on 6 processes). Assumptions in results/spectral_motion.json.
+- Synthetic (known shift U(-5,5) px, n 300 per cloud fraction, independent blob clouds each day): masked NCC median |error| 0.05 / 0.06 / 0.07 / 0.08 / 0.11 / 1.18 px at cloud 0 / 10 / 20 / 30 / 40 / 50 % (Gaussian random field k^-3); real ln CHL field 0.09 / 0.08 / 0.09 / 0.11 / 0.14 / 0.50 px; share > 1 px 0-5 % up to 30 % cloud, 14-15 % at 40 %, 30-56 % at 50 %. Phase correlation 0.12-0.17 px at 0-10 % cloud. Aligned coherence of the shifted GRF 0.998 for 10-144 km, 0.98 at 9.6 km, 0.82 at 9.0 km (Nyquist ring).
+- u_eff rebuilt from tr_rea_geo_wind (tracer.VelocityModel imported read-only, CPU, wind term included); rebuilt a matches factor_maps.npz to 2.7e-7.
+- Accepted patch-pairs, lead 1 / 2 / 3: 77,039 / 60,979 / 56,334 (of 95,173 / 85,482 / 82,160 candidates; 71 % of lead-1 acceptances are 50-90 % cloudy patches). Median |d_obs| 1.19 / 1.07 / 1.20 px/day; |d_cur| 1.80, |d_geo| 1.38, |u_eff| 0.37 px/day (lead 1).
+- OLS slope of observed shift on reference, east / north, lead 1 (n 70,990; geo 66,466); R = mean resultant length of direction difference:
+
+| reference | lead 1 slope e / n | R | lead 2 slope e / n | R | lead 3 slope e / n | R |
+|---|---|---|---|---|---|---|
+| reanalysis | 0.46 / 0.42 | 0.53 | 0.31 / 0.29 | 0.46 | 0.20 / 0.19 | 0.33 |
+| geostrophic | 0.59 / 0.50 | 0.56 | 0.39 / 0.32 | 0.47 | 0.25 / 0.19 | 0.33 |
+| tracer u_eff | 1.92 / 1.81 | 0.69 | 1.36 / 1.33 | 0.59 | 0.92 / 0.87 | 0.43 |
+| shuffled-day reanalysis | 0.28 / 0.16 | 0.31 | 0.19 / 0.12 | 0.27 | 0.13 / 0.09 | 0.20 |
+
+  (R for u_eff uses only pairs with |u_eff| >= 0.5 px/day: n 21,198 at lead 1 vs 54,830 for reanalysis.)
+- Lead 1 by region (reanalysis e / n): NW shelf 0.32 / 0.25, W open 0.47 / 0.48, E open 0.49 / 0.37; other regions n = 0. By season: DJF 0.35 / 0.32 (n 3,126), MAM 0.49 / 0.42, JJA 0.49 / 0.46, SON 0.39 / 0.37. By |d_cur| tercile (edges 1.33, 2.34 px): slopes 0.51 / 0.50 / 0.44 (east); R 0.32 / 0.52 / 0.69. Clear-only patches 0.50 / 0.44 (n 21,952), 50-90 % cloudy 0.45 / 0.41 (n 49,038).
+- Lead consistency (same patch and start day accepted at both leads): lead-2 shift on lead-1 shift slope 1.04 / 0.93 (n 44,481; medians 1.14 -> 2.04 px); lead-3 on lead-1 0.94 / 0.82 (n 37,989; R² 0.11 / 0.07).
+- Phase correlation vs masked NCC on the same clear patches: lead 1 median |diff| 0.62 px, 67 % within 1 px, slope PC on NCC 0.62 / 0.59 (n 21,896); >= 99 % observed subset 0.53 px, 73 % (n 8,367). Lead 2: 1.57 px, 36 %; lead 3: 3.41 px, 20 %. PC slope on current lead 1 0.37 / 0.33 vs NCC 0.49 / 0.43 on the same patches.
+- vs block matching (patch shift vs mean of accepted 16 px tiles inside it, same day): lag 1 n 41,426, median |diff| 0.92 px, 54 % within 1 px, slope 0.58 / 0.49; lag 2 n 31,530, median |diff| 2.47 px, slope 0.26 / 0.20, median |d| 2.34 (patch) vs 3.58 px (tiles).
+- Coherence (ring-averaged MSC, >= 90 % clear patches), median, lead 1 aligned / unaligned (n 24,320) / null aligned (n 1,044): 144 km 0.91 / 0.87 / 0.48; 48 km 0.72 / 0.56 / 0.17; 24 km 0.31 / 0.14 / 0.03; 18 km 0.15 / 0.07 / 0.02; 12 km 0.03 / 0.02 / 0.01; 9 km 0.016 / 0.015 / 0.011. 9-18 km band MSC, lead 1: aligned 0.056, unaligned 0.023, null 0.004.
+- Null-corrected rho, per-wavelength e-folding lead (aligned): 144 km 21.6 d, 72 km 10.1, 48 km 4.8, 36 km 3.1, 29 km 2.3, 24 km 1.9, 14-21 km 1.6-1.7 d, 9-12 km 2.1-4.2 d (rho there 0.04-0.15, near the null). Implied K = rate / q²: 282 m²/s (144 km) falling monotonically to 46 (16 km) and 6 (9 km). Single K for all wavelengths: free per-wavelength intercepts K 16.5 m²/s, R² 0.935 (residual RMS 0.15-0.38 in ln rho at 18-48 km); strict exp(-K q² t) without intercept K 41 m²/s, R² 0.48. Intercepts (ln rho extrapolated to lead 0) fall from -0.06 (>= 48 km) to -2.4 (9 km). Same pattern in each season and in NW shelf / W open / E open.
+- By region at lead 1 (aligned, 36 km ring): NW shelf 0.24 (n 2,513), W open 0.14, E open 0.14, Azov 0.34 (n 259). By season DJF 0.08 (n 804) to JJA 0.17.
+- Figures: analyses/blk4/figures/spectral_{synthetic,components,slopes_by_group,slopes_by_lead,angles,vs_blockmatch_phasecorr,coherence_curves,coherence_by_group,decay_fits,maps}.png. Cache results/spectral_motion_patches.npz.
+
+## Resolution check: 4 km gap-filler on 2 km truth, and 2 km lead-1 coherence (2026-10-18; analyses/blk/res_compare.py, analyses/blk/coherence_2km.py)
+- Runs: 4 km blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (50+50+50 epochs, batch 16) vs 2 km blk_t3d_c4_gdl100_sl_lam0p3 (20 epochs, batch 4). Same 365 val+test days (every 4th day). Training budgets differ; not controlled.
+- Fair set: 2 km hidden pixels whose parent 4 km block was not in the 4 km input (4 km input = 4 km observed [>= 2 of 4 children] & not 4 km hidden; 4 km hidden = observed today & not observed on donor day, same donor days at both resolutions). 8,577,974 hidden 2 km px; excluded 258,480 (3.0 %) parent visible to 4 km model, 6,643 parent not 4 km ocean; kept 8,312,851 (8,210,959 parent 4 km hidden, 101,892 parent 4 km not observed). Stored hidden masks reproduce exactly from store + donors at both resolutions (0 mismatches); own-mask val MAE reproduces metrics.json (0.1606 at 2 km, 0.1498 at 4 km). No NaN / all-zero predictions on scored pixels.
+- MAE (ln CHL), fair set, 95 % day-bootstrap CI of difference:
+
+| subset | 2 km model | 4 km nearest | 4 km bilinear | bilinear - 2 km [CI] | n px |
+|---|---|---|---|---|---|
+| all (365 d) | 0.1596 | 0.1519 | 0.1510 | -0.0086 [-0.0103, -0.0067] | 8,312,851 |
+| val | 0.1636 | 0.1552 | 0.1544 | -0.0092 | 4,077,489 |
+| test | 0.1557 | 0.1487 | 0.1477 | -0.0080 | 4,235,362 |
+| NW shelf | 0.2361 | 0.2279 | 0.2258 | -0.0104 | 1,333,385 |
+| W open | 0.1188 | 0.1102 | 0.1099 | -0.0089 | 2,325,023 |
+| E open | 0.1191 | 0.1127 | 0.1122 | -0.0069 | 3,389,163 |
+| Anatolian | 0.2422 | 0.2228 | 0.2208 | -0.0213 | 239,835 |
+| Crimea/Caucasus | 0.1911 | 0.1837 | 0.1810 | -0.0101 | 174,395 |
+| Azov | 0.2787 | 0.2732 | 0.2722 | -0.0065 | 667,419 |
+| Marmara | 0.2951 | 0.2860 | 0.2846 | -0.0105 | 183,631 |
+| dist 1 px (2 km) | 0.0622 | 0.0648 | 0.0621 | -0.0001 [-0.0006, 0.0004] | 547,356 |
+| dist 2-3 | 0.0847 | 0.0795 | 0.0780 | -0.0066 | 823,762 |
+| dist 4-7 | 0.1106 | 0.1038 | 0.1029 | -0.0078 | 976,102 |
+| dist 8-15 | 0.1368 | 0.1287 | 0.1280 | -0.0087 | 1,143,700 |
+| dist 16-31 | 0.1615 | 0.1537 | 0.1531 | -0.0084 | 1,332,013 |
+| dist >= 32 | 0.2129 | 0.2030 | 0.2023 | -0.0106 | 3,489,918 |
+
+  Nearest at dist 1 px: +0.0027 [0.0022, 0.0031] vs 2 km. All other region / distance CIs exclude 0 except nearest in Azov (upper 0.0000) and Marmara (upper +0.0002).
+- Pair differences vs 2 km truth, both ends fair (ratio / corr; 2 km / 4 km nearest / 4 km bilinear): lag 2 km 0.378/0.473, 0.380/0.328, 0.372/0.457 (15.6 M pairs); 4 km 0.438/0.562, 0.464/0.559, 0.441/0.567; 8 km 0.511/0.655, 0.542/0.666, 0.525/0.673; 16 km 0.595/0.744, 0.625/0.761, 0.615/0.766 (12.6 M). ">= 1 end fair" rule: same ordering, values +0.01-0.04.
+- Coherence at 2 km: 64 x 64 px patches (~144 km, = 4 km patch grid x 2; 91 of 176 kept), start days every 5th store day (798 lead-1 pairs, 798 null pairs, one per pair), spectral_motion code imported with constants rebound (search +-12 px, overlap min 1024 px). Median MSC lead 1, aligned / unaligned / null aligned (n 4,540 / 4,779 / 665):
+
+| wavelength km | 2 km aligned | 2 km unaligned | 2 km null | 4 km aligned (all days, n 24,320) | 4 km unaligned | matched pairs 2 km / 4 km aligned (n 4,505) |
+|---|---|---|---|---|---|---|
+| 144 | 0.910 | 0.872 | 0.449 | 0.906 | 0.863 | 0.910 / 0.912 |
+| 48 | 0.734 | 0.558 | 0.171 | 0.719 | 0.544 | 0.736 / 0.734 |
+| 24 | 0.330 | 0.148 | 0.036 | 0.310 | 0.139 | 0.332 / 0.318 |
+| 18 | 0.177 | 0.070 | 0.022 | 0.152 | 0.066 | 0.178 / 0.163 |
+| 14.4 | 0.087 | 0.040 | 0.016 | 0.066 | 0.038 | 0.088 / 0.071 |
+| 12 | 0.044 | 0.026 | 0.011 | 0.034 | 0.024 | 0.044 / 0.035 |
+| 9 | 0.018 | 0.017 | 0.009 | 0.016 | 0.015 | 0.018 / 0.015 |
+| 8.0 | 0.014 | 0.011 | 0.008 | - | - | - |
+| 6.0 | 0.007 | 0.007 | 0.005 | - | - | - |
+| 4.5 | 0.006 | 0.005 | 0.005 | - | - | - |
+
+  2 km and 4 km agree within 0.02 at >= 24 km; at 9-21 km 2 km aligned is 0.003-0.025 higher on the same patch-pairs. At 4.5-8.5 km aligned MSC 0.005-0.015 vs null 0.004-0.008. Matched-pair NCC shifts: median |2 km shift / 2 - 4 km shift| 0.15 (4 km px), 92 % within 0.5 px. Data quality: 2 km chl NaN on 56 % of ocean px-days of the start days (41.8 M of 74.7 M), 48,377 values > 100 set missing.
+- Outputs: analyses/blk/results/{res_compare,coherence_2km}.json, coherence cache results/coherence_2km_patches.npz; figures analyses/blk/figures/res_compare_{mae,gradients}.png, coherence_2km.png.
+
+## Learned Lagrangian tracer: seed check and step 2, pointwise source (Black Sea 4 km; 2026-10-18/19; chl_cnn/train_tracer.py --source, tracer.py SourceModel)
+- Assumptions: velocity terms initialised from scratch (same seed-0 init as tr_rea_geo_wind; no reason found to warm-start). Source S = 0.5 tanh(MLP), 1x1 convs, hidden 32, zero at init; integrated forward along the backward trajectory, S evaluated at the RK2 sub-step midpoints with the carried value from the sub-step start (explicit). River influence uses a fixed L = 50 km. Discharge per mouth = friver x cell area summed over friver pixels whose nearest river_dist mouth is within 40 km (grouping of analyses/blk4/extra_vars_check.py): Danube 5 px 5,859 m3/s, Dnieper-Bug 3 px 1,476, Kizilirmak 3 px 539, Dniester 3 px 353, Sakarya 2 px 196, Bosporus 1 px 11, Kerch and Rioni 0 px; 59 unassigned px (1,593 m3/s) not used. rsntds 2024-10-16..20 (all NaN) filled with the per-pixel mean of the same doy over 10 other years. Inputs z-scored over ocean pixel-days of every 5th train day (509 days); physics NaN only where reanalysis currents are NaN (so all inputs are finite on valid trajectories; the so_ok flag is < 0.999 at ~0.3 % of samples). Best epoch = min val mean-lead MAE (own set), as step 1. Step-1 comparison ("ref") = tr_rea_geo_wind seed 0 rescored inside each source run's final evaluation, so source and ref share pixels.
+- Code checks: --eval-only rescoring of tr_rea_geo_wind with the new code (tr_rea_geo_wind_reeval) reproduces all 1,867 numbers of its metrics["best"] exactly. test_tracer: path recording leaves trajectories bit-identical; constant S = 0.2 over k = 3 days adds 0.6000 (err 6e-8); S = 0 at init (smoke run init equals x0.25). 209 s/epoch, peak 11.7 GB (gradient checkpointing per sub-step).
+- Seed check (step 1, rea+geo+wind, seeds 0/1/2, own common sets, n 1.76 / 1.48 / 1.37 / 1.34 / 1.29 M): model MAE spread (max-min) 0.0003 / 0.0002 / 0.0002 / 0.0001 / 0.0003 at leads 1-5; model - x0.25 spread <= 0.0002 (seed values +0.0001..+0.0002 at lead 1, -0.0018..-0.0019 at lead 5). Factor a 0.158-0.169, b 0.019-0.056, wind c 0.10-0.16, theta circular mean -140 / -146 / -160 deg; a-map pattern correlation between seeds 0.92-0.98.
+- Val MAE, common set incl. ref (n 1.76 / 1.47 / 1.36 / 1.34 / 1.28 M), leads 1-5:
+
+| predictor | l1 | l2 | l3 | l4 | l5 |
+|---|---|---|---|---|---|
+| source seed 0 (tr_src, best epoch 1) | 0.1526 | 0.1822 | 0.1995 | 0.2173 | 0.2219 |
+| source seed 1 (tr_src_s1, best epoch 3) | 0.1516 | 0.1841 | 0.2009 | 0.2225 | 0.2287 |
+| source without ln C (tr_src_noC, best epoch 14) | 0.1574 | 0.1880 | 0.2112 | 0.2280 | 0.2338 |
+| step-1 rea+geo+wind (ref) | 0.1595 | 0.1915 | 0.2174 | 0.2346 | 0.2428 |
+| x0.25 | 0.1594 | 0.1922 | 0.2186 | 0.2360 | 0.2446 |
+| persistence | 0.1639 | 0.1966 | 0.2220 | 0.2395 | 0.2470 |
+| DOY clim | 0.3651 | 0.3855 | 0.3722 | 0.3811 | 0.3674 |
+
+- Source minus step-1 (same pixels), leads 1-5: seed 0 -0.0070 / -0.0093 / -0.0179 / -0.0173 / -0.0209; seed 1 -0.0080 / -0.0075 / -0.0165 / -0.0121 / -0.0141; no ln C -0.0021 / -0.0035 / -0.0062 / -0.0066 / -0.0090. Step-1 seed spread 0.0001-0.0003 per lead.
+- Training curves: train L1 falls every epoch (0.197 -> 0.185, both seeds); val mean-lead MAE does not: seed 0 is best at epoch 1 (0.2006) and ranges 0.2009-0.2142 over epochs 2-20 (0.2142 at epoch 20); seed 1 0.2031-0.2102. Basin-mean val S per epoch -0.012 to -0.039 ln CHL/day (with ln C); Pearson r over 20 epochs between val mean S and val lead-5 MAE -0.86 (seed 0), -0.67 (seed 1), +0.80 (no ln C, mean S -0.012..+0.001). Val curves are not falling; they fluctuate by up to 0.03 at lead 5 between consecutive epochs (constant lr 3e-3). Reported numbers are single best-epoch checkpoints selected on val.
+- Velocity factors: a at best epoch 0.186 (seed 0, epoch 1), 0.215 (seed 1), 0.184 (no ln C) vs 0.158-0.169 in step 1; epochs 11-20 mean a 0.228 / 0.224 / 0.188 vs 0.157-0.166. b -0.021..0.009 (epochs 11-20) vs 0.024-0.052. Wind c 0.11-0.13, theta -127 / 178 / -160 deg. a-map pattern correlation with step-1 seed 0: 0.74 (seed 0), 0.86 (seed 1), 0.97 (no ln C), vs 0.93-0.98 among step-1 seeds. Model speed 0.51-0.57 vs 0.47-0.50 px/day.
+- Lead-1 source (prediction - departure value, ln CHL/day), val, mean (n 3.02 M pixel-days): seed 0 DJF -0.003, MAM -0.025, JJA -0.030, SON +0.014, all -0.015; seed 1 -0.002 / -0.032 / -0.034 / +0.031, all -0.014; no ln C -0.000 / -0.011 / -0.011 / -0.000, all -0.007. Regions (seed 0, all seasons) -0.014 (W, E open sea, Anatolian) to -0.020 (NW shelf, Crimea/Caucasus); Azov 0 px. |S| at sub-step samples (n 241 k): median 0.027 / 0.034 / 0.011, p99 0.11 / 0.19 / 0.04, max 0.26 / 0.45 / 0.14; g_max 0.5 not reached (0 samples > 0.45).
+- S by input decile (range of decile means, seed 0 / seed 1 / no ln C, ln CHL/day): carried ln C 0.062 / 0.100 / -, monotone decreasing (higher C -> more negative S); rsntds 0.056 / 0.077 / 0.021, decreasing with light; doy sin/cos 0.05-0.08 / 0.01-0.02; log10 MLD 0.050 / 0.068 / 0.016, S lowest at shallow MLD; |tau| 0.033 / 0.036 / 0.025, increasing; SST 0.029 / 0.046 / 0.006, peak near 15 °C; river 0.013 / 0.031 / 0.004; dilution 0.017 / 0.020 / 0.014; static depth / coast distance <= 0.02. Decile means are conditional means over correlated inputs, not isolated effects.
+- Gradient ratio / corr at lead 1, lag 1 / 4 / 16 px (3.24 / 2.83 / 2.10 M pairs): seed 0 0.840/0.519, 0.912/0.724, 0.935/0.889; seed 1 0.811/0.523, 0.883/0.728, 0.910/0.890; no ln C 0.896/0.514, 0.968/0.721, 0.985/0.886; ref 0.896/0.513, 0.968/0.719, 0.984/0.885; x0.25 0.893/0.515; persistence 1.004/0.462, 1.003/0.687, 0.992/0.873.
+- Lead-1 MAE by region, source seed 0 / ref (n): NW shelf 0.1980 / 0.2027 (308 k); W open 0.1310 / 0.1387 (599 k); E open 0.1484 / 0.1557 (796 k); Anatolian 0.2140 / 0.2203 (29 k); Crimea/Caucasus 0.1714 / 0.1810 (24 k); Marmara 0.2278 / 0.2347 (226 px; x0.25 0.2245); Azov 0 px. Seed 1 -0.005 to -0.010 vs ref in every region; no ln C -0.003 to +0.002.
+- Outputs: models/tracer/{tr_rea_geo_wind_s1,_s2,tr_rea_geo_wind_reeval,tr_src,tr_src_s1,tr_src_noC,tr_src_smoke}/ (source runs add source_maps.npz, source_pd.npz; model.pt has a "source" state dict; metrics["final"] holds the ref comparison). Tables analyses/tracer/results/step2_tables.md; figures analyses/tracer/figures/step2_{seed_check,mae_vs_lead,velocity_factors,source_maps,source_pd,training_curves}.png (analyses/tracer/step2_report.py). Notebook panels: tracer_viz.draw_source_by_epoch, draw_source_maps. Logs ~/mind_the_chl_gap/logs/tracer_{seed,s2}_queue*, tr_src*.log. Test years not scored.
+
+## Learned Lagrangian tracer: seed check and step 2, pointwise source (Black Sea 4 km; runs 2026-10-18/19; chl_cnn/train_tracer.py --source, tracer.SourceModel)
+- Assumptions: val = 2017 + 2021, every 2nd start day (351 starts); test years not scored. Best epoch = min mean-lead val MAE (own set), selected and reported on the same val days (as step 1). Source-vs-step-1 comparisons use a final re-evaluation of each source run's best model with tr_rea_geo_wind (seed 0) scored as predictor "ref" on identical pixels (metrics.json "final"). Velocity terms of the source runs initialised from scratch (same init as step 1, so at epoch 0 the model equals x0.25); reason: the identifiability check needs velocity learned jointly with the source. 20 epochs as step 1.
+- Code: --source off reproduces step 1 bit-identically: tr_rea_geo_wind re-scored with --eval-only --init-from (run tr_rea_geo_wind_reeval) matches its metrics["best"] in all 1,867 numeric fields. test_tracer: path recording leaves trajectories identical; SourceModel outputs 0 at init; constant S = 0.2 over k = 3 days accumulates 0.6000 (err 6e-8).
+- Source: S = 0.5 tanh(MLP), 1x1 convs (hidden 32), integrated forward from the departure point along the backward trajectory, S at each RK2 sub-step midpoint (position, time), carried value c at the sub-step start (explicit). Inputs (13): sst32, rsntds, log10 mlotst, dilution max(ΔMLD,0)/MLD per day, |τ|, river influence log10(1 + Σ_r Q_r exp(-d_r / 50 km)) (L fixed), so, so_ok, log10 depth, log10(1 + dist to coast), doy sin/cos, c (z-scored). z-stats: ocean px of every 5th train day (509 days). rsntds all-NaN 2024-10-16..20 filled per pixel with the same-doy mean of the other 10 years. Physics NaN only where reanalysis currents are NaN (14.1 % of ocean px-days; trajectories there are invalid anyway). River grouping: friver pixels assigned to the nearest river_dist mouth if <= 40 km (as extra_vars_check): Danube 5 px 5,859 m3/s, Dnieper-Bug 3 px 1,476, Kizilirmak 3 px 539, Dniester 3 px 353, Sakarya 2 px 196, Bosporus 1 px 11, Kerch and Rioni 0 px; 59 px (1,593 m3/s) unassigned and not used. Gradient checkpointing per sub-step; 209 s/epoch, 71 min/run, peak 11.7 GB.
+- Task A, step-1 seeds 0/1/2 (rea+geo+wind), own common sets, MAE l1-l5: seed 0 0.1596/0.1916/0.2174/0.2346/0.2428; seed 1 0.1593/0.1914/0.2172/0.2346/0.2427; seed 2 0.1596/0.1916/0.2173/0.2345/0.2425. Spread (max-min) 0.0001-0.0003 per lead; model - x0.25 spread 0.0001-0.0002 (seed 0 +0.0002/-0.0007/-0.0012/-0.0014/-0.0018). n 1.76/1.48/1.37/1.34/1.29 M. Ocean-mean a 0.158-0.169; b 0.019-0.056; wind c 0.10-0.16 m/s per Pa, θ circular mean -140/-146/-160 deg. a-map pattern correlation between seeds 0.92-0.98.
+- Step 2, val MAE on the final common set (incl. ref), leads 1-5 (n 1.76/1.47/1.36/1.34/1.28 M):
+
+| predictor | l1 | l2 | l3 | l4 | l5 |
+|---|---|---|---|---|---|
+| tr_src (seed 0, best epoch 1) | 0.1526 | 0.1822 | 0.1995 | 0.2173 | 0.2219 |
+| tr_src_s1 (seed 1, best epoch 3) | 0.1516 | 0.1841 | 0.2009 | 0.2225 | 0.2287 |
+| tr_src_noC (no ln C input, best epoch 14) | 0.1574 | 0.1880 | 0.2112 | 0.2280 | 0.2338 |
+| step-1 tr_rea_geo_wind (ref) | 0.1595 | 0.1915 | 0.2174 | 0.2346 | 0.2428 |
+| x0.25 | 0.1594 | 0.1922 | 0.2186 | 0.2360 | 0.2446 |
+| persistence | 0.1639 | 0.1966 | 0.2220 | 0.2395 | 0.2470 |
+| DOY clim | 0.3651 | 0.3855 | 0.3722 | 0.3811 | 0.3674 |
+
+- Source minus step-1 (same pixels), l1-l5: tr_src -0.0070/-0.0093/-0.0179/-0.0173/-0.0209; tr_src_s1 -0.0080/-0.0075/-0.0165/-0.0121/-0.0141; tr_src_noC -0.0021/-0.0035/-0.0062/-0.0066/-0.0090. Step-1 seed spread 0.0001-0.0003.
+- Training curves: train L1 (mean lead) falls every few epochs to the end (tr_src 0.1970 -> 0.1848; s1 0.1971 -> 0.1853; noC 0.2056 -> 0.2031, flatter); val does not follow. Val common-set MAE range over the 20 epochs: tr_src l1 0.1509-0.1526, l3 0.1983-0.2100, l5 0.2218-0.2503 (epoch 20 l5 0.2503 > step-1 0.2428); s1 l5 0.2285-0.2418; noC l5 0.2333-0.2415; step-1 l5 0.2427-0.2430. Mean of the last 5 epochs l1-l5: tr_src 0.1517/0.1878/0.2047/0.2320/0.2410; s1 0.1512/0.1858/0.2022/0.2281/0.2367; noC 0.1579/0.1892/0.2128/0.2299/0.2359. The best-epoch gains at leads 4-5 are therefore partly epoch selection on val; leads 1-3 are below step 1 at every epoch of both ln-C runs. Across epochs, val basin-mean S vs val l5 MAE: r -0.86 (tr_src), -0.67 (s1), +0.80 (noC), n 20 epochs each.
+- Velocity factors with the source (identifiability check). Ocean-mean a at best epoch: step 1 0.158-0.169; tr_src 0.186, s1 0.215, noC 0.184; mean over epochs 11-20: step 1 0.157-0.166, tr_src 0.228, s1 0.224, noC 0.188. b: step 1 0.019-0.056; source runs -0.008 to 0.022 (epochs 11-20 -0.021 to 0.009). Wind c 0.11-0.13, θ -127 / 178 / -160 deg. Model speed 0.47-0.50 (step 1) vs 0.51-0.57 px/day. a-map pattern correlation with step-1 seeds: tr_src 0.61-0.74, s1 0.75-0.87, noC 0.89-0.97 (step-1 inter-seed 0.92-0.98). Context: the spectral motion analysis (above) gives observed 1-day feature motion slope 0.46/0.42 on reanalysis and 1.92/1.81 on step-1 u_eff; with the ln C source a rises from ~0.16 to ~0.22, still below 0.42-0.46.
+- Lead-1 source S (prediction minus departure value, 1 day), val, basin mean (n 3.02 M px-days): tr_src -0.015 (DJF -0.003, MAM -0.025, JJA -0.030, SON +0.014); s1 -0.014 (SON +0.031); noC -0.007 (SON -0.000). By region (tr_src, all seasons) -0.014 to -0.020; Azov n = 0. Maps: negative along the NW-shelf west coast and SE coast in MAM/JJA (to ~-0.10), positive open basin in SON; noC maps within ~±0.02. |S| at sub-step samples (n 241 k): median 0.027 / 0.034 / 0.011, p99 0.11 / 0.19 / 0.04, max 0.26 / 0.45 / 0.14; none above 0.9 g_max.
+- Mean S by input decile (tr_src / s1): carried ln C decreasing, +0.008 / +0.016 at ln C -1.6 to -0.054 / -0.084 at ln C +0.05 (range 0.062 / 0.100); rsntds decreasing, +0.015 / +0.035 at 64 W m-2 to -0.041 / -0.043 at 330; doy sin/cos range 0.05-0.08; MLD increasing, -0.05 / -0.07 at the shallowest decile to ~0 at log10 MLD 1.5; |τ| increasing, -0.025 to +0.009 (all three runs); SST peaked near 14-17 °C; river influence, salinity, depth, coast distance ranges 0.008-0.034. noC ranges 0.001-0.025 (largest |τ| 0.025, rsntds 0.021). so_ok < 0.999 in 780-973 samples.
+- Gradient ratio / corr at lead 1, lag 1 / 4 / 16 px (3.24 / 2.83 / 2.10 M pairs): tr_src 0.840/0.519, 0.912/0.724, 0.935/0.889; s1 0.811/0.523, 0.883/0.728, 0.910/0.890; noC 0.896/0.514, 0.968/0.721, 0.985/0.886; ref 0.896/0.513, 0.968/0.719, 0.984/0.885; x0.25 0.893/0.515; persistence 1.004/0.462; x1.0 0.982/0.401; clim 0.466/0.427.
+- Lead-1 MAE by region, source minus ref (tr_src / s1 / noC): NW shelf -0.0047/-0.0053/-0.0010 (308 k); W open -0.0077/-0.0088/-0.0025 (599 k); E open -0.0073/-0.0083/-0.0023 (796 k); Anatolian -0.0063/-0.0086/-0.0003 (30 k); Crimea/Caucasus -0.0096/-0.0101/-0.0029 (24 k); Marmara -0.0069/-0.0103/+0.0021 (226-269 px); Azov 0 px.
+- Outputs: models/tracer/tr_rea_geo_wind_s1, _s2, tr_src, tr_src_s1, tr_src_noC (+ source_maps.npz, source_pd.npz), tr_rea_geo_wind_reeval, tr_src_smoke (20-batch smoke). Tables analyses/tracer/results/step2_tables.md; figures analyses/tracer/figures/step2_{seed_check,mae_vs_lead,velocity_factors,source_maps,source_pd,training_curves}.png (analyses/tracer/step2_report.py). Notebook: chl_cnn/tracer_viz.py gained draw_source_by_epoch / draw_source_maps (progress.ipynb tracer cell).
+- Open questions: why val MAE at leads 4-5 swings by up to 0.03 between epochs while train L1 falls smoothly (val mean S correlates with l5 MAE across epochs); whether the a increase with the source reflects a trade-off between transport and the ln C relaxation term.
+
+## Learned Lagrangian tracer, step 1b: decomposed velocity, band-passed loss (Black Sea 4 km; 2026-10-19; train_tracer.py --vel-param decomp --loss-band, tracer.py, analyses/tracer/step1b_report.py)
+- Model: u_eff = Σ_j α_j(region, season) u_j, u_j = geostrophic (zos) and ageostrophic (u_rea − u_geo; = u_rea where u_geo invalid, i.e. within 2 px of land / NaN zos) velocities, each split into train-years doy climatology (366 bins, circular Gaussian σ 15 d) + daily anomaly; α free scalars per component × 7 regions × 4 seasons (112), init 0.25 (= x0.25 baseline at init, checked to 4 decimals); no wind. Runs: A = tr1b_band_s0 (loss L1 on 24-150 km band-passed ln CHL), A_s1 (seed 1), B = tr1b_pix_s0 (pixel L1). 20 epochs, 39 s/epoch, ~14 min/run, peak 5.3 GB.
+- Band-pass: normalised-convolution DoG (σ = 0.1874 λ/4.5 km for 0.5 response at λ; filter mask = target observed ∩ valid prediction; valid where both normalised weights ≥ 0.5). Response 24-150 km band: peak 0.88 at ~65 km, 0.50 at 24 and ~150 km; 20-70 km band: peak 0.72 at ~35 km. Measured vs analytic on sinusoids max |dev| 0.014 (clear) / 0.038 (30 % clouds + land). Constant field under clouds/land: max |output| 1.4e-6 (naive zero-filled DoG 0.85). Synthetic α recovery (true 0.6 / 1.3, init 0.25): band loss 0.599 / 1.299, pixel loss 0.597 / 1.297. Decomposition sums to u_rea to 9e-8. (results/step1b_checks.json)
+- Step-1 behaviour with new flags off: --eval-only re-score of tr_rea_geo_wind identical to the earlier re-score and to its best-epoch metrics (all keys).
+- Selection: all three runs' best val epoch = 1 (val criterion flat to ±0.0002 over epochs 1-20 while α kept moving); evaluated both best (epoch 1) and epoch-20 α (from history.json).
+- Lead-1 observed patch shift (masked NCC, spectral_motion cache, val-year starts, common set 12,044 pairs / 520 days), OLS slope e / n [95 % CI], R:
+
+| reference | slope east | slope north | R (n_R) |
+|---|---|---|---|
+| reanalysis | 0.47 [0.45, 0.49] | 0.40 [0.38, 0.42] | 0.51 (9,387) |
+| reanalysis x0.25 | 1.89 [1.81, 1.97] | 1.61 [1.50, 1.70] | 0.65 (4,399) |
+| step-1 u_eff | 1.99 [1.90, 2.08] | 1.73 [1.62, 1.83] | 0.65 (3,250) |
+| A / A_s1 / B (epoch 1) | 1.42 / 1.43 / 1.46 | 1.47 / 1.50 / 1.54 | 0.64 (6.2-6.5 k) |
+| A / A_s1 / B (epoch 20) | 1.23 / 1.24 / 1.25 | 1.31 / 1.32 / 1.38 | 0.63 (6.6-6.9 k) |
+
+- Val MAE, common set (n 1.74 M at lead 1 to 1.25 M at lead 5), leads 1 / 3 / 5: A 0.1584 / 0.2171 / 0.2428; B 0.1585 / 0.2171 / 0.2427; x0.25 0.1591 / 0.2188 / 0.2450; persistence 0.1637 / 0.2222 / 0.2474; x1.0 0.1700 / 0.2444 / 0.2774. A − B within ±0.0001 (epoch 1) and ±0.0003 (epoch 20) at every lead. 20-70 km band MAE (n 1.56 M → 1.08 M): A 0.0450 / 0.0618 / 0.0661, B 0.0451 / 0.0618 / 0.0661, x0.25 0.0457 / 0.0631 / 0.0676, persistence 0.0487 / 0.0647 / 0.0677; A − B within ±0.0001.
+- Lead-1 gradient calibration in the 20-70 km band (Δtruth on Δpred, lag-1 pairs, n 2.96 M): A 0.579 [0.559, 0.595], B 0.577, epoch-20 0.578-0.580, x0.25 0.569, persistence 0.495, x1.0 0.410.
+- α (epoch 20, mean over seasons; A / B): geo_mean W open 0.56 / 0.60, E open 0.54 / 0.45, NW shelf 0.09 / 0.14; geo_anom 0.08-0.16 in all three open/shelf regions; ageo_mean −0.09 to 0.19 (A), −0.02 to 0.13 (B); ageo_anom 0.13-0.20. A vs A_s1 epoch-20 α: max |diff| 0.045 over NW shelf / W open / E open cells, 0.16 including Anatolian / Crimea-Caucasus. Unconstrained cells: Azov (no currents, n = 0, α stays 0.25), Marmara (≤ 2.1 k px; geo components stay 0.25: no valid u_geo), Anatolian / Crimea-Caucasus DJF (< 10 k px). Train-px counts per cell in results/step1b_tables.md.
+- Tables analyses/tracer/results/step1b_tables.md; figures analyses/tracer/figures/step1b_{bandpass_response,patch_slopes,shift_scatter,mae_vs_lead,grad_calibration,alpha,training_curves}.png.
+
+## Static base + advected anomaly hypothesis, ln C = B + A (Black Sea 4 km; 2026-10-19; chl_cnn/tracer_static.py, analyses/tracer/static_{synth,zero_tiles,scan,train,anom_motion}.py)
+- Assumptions: bases fitted on train days only (doy = 366-bin doy climatology, circular Gaussian sigma 15 d; harm = per-pixel mean + annual + semi-annual harmonics, >= 30 train obs); run = causal mean of observed ln C over calendar days t-20..t-1 (>= 3 obs, else doy); lp = 150 km normalised-convolution low-pass of day t (sigma 6.25 px, weight >= 0.05, else doy). run / lp are held fixed over the lead (B(t+k) = B(t)). Forecast ln C(x, t+k) = B(x, t+k) + A(X_k(x), t) with the unchanged tracer.Integrator. Bases cached in ~/mind_the_chl_gap/data/static_bases (doy fallback on the scan common set: run 0.6-0.9 % of px, lp < 0.001 %). Val = 351 starts (2017 + 2021); test years not scored.
+- Test 1, synthetic (static GRF with variance fraction f + AR(1)-per-mode moving GRF at gamma x real patch current, per-wavelength decay rates and lead-0 intercepts from spectral_motion.json, real cloud masks, unchanged NCC / block-matching code; 2,000 patch sequences): frozen-field control recovers slope 1.00 at lead 1, lead-2/lead-1 OLS slope 1.89 (true 1.93). Real ln C on the same sequences: NCC zero share 0.205 / 0.103 / 0.064 (leads 1-3), block-matching zero share 0.43, NCC slope on current 0.41 (l1) / 0.18 (l3), median |shift| ratio l2/l1 1.91, l3/l1 3.36, OLS l2-on-l1 1.08, l3-on-l1 0.74. Synthetic f = 0: zero share 0.06-0.18 / 0.01-0.04 / 0.01-0.03, median ratios 2.0-2.1 / 3.2-3.7, OLS l2-on-l1 1.45-1.60 (true 1.93), BM zero share 0.16 / 0.31 / 0.65 at gamma 1 / 0.75 / 0.5. f >= 0.4: lead-3 zero share >= 0.13, median ratios <= 1.69 / 2.9; f >= 0.6: median ratios 1.15-1.25 / 1.4-1.7, BM zero share >= 0.99. No single f matches all statistics: zero shares by lead and median ratios fall in f 0-0.2; OLS lead-k-on-lead-1 slopes fall in f 0.6-0.8; slope on current at l1 / l3 matches f 0-0.4 depending on gamma. Synthetic NCC acceptance 88-99 % of candidates vs 82 % real. Table results/static_synth.md, figure figures/static_synth_stats.png.
+- Test 2, zero-shift tiles (chl_motion lag 1, T16, S6: 8,723 zero / 9,387 moving / 29,027 ambiguous): zero share NW shelf 0.79 (n 3,067), W open 0.39 (6,884), E open 0.35 (6,910), Azov 0.98 (1,249; no reanalysis currents, 1,228 of the zero tiles); without Azov 0.44. Zero share falls with |current| 0.70 (< 0.5 px/day, n 961) -> 0.15 (>= 5, n 551), rises with cloud fraction 0.44 (< 5 %) -> 0.72 (10-20 %) and is 0.91 at depth < 50 m. Median r(ln C day t, long-term-mean pattern) zero 0.45 vs moving 0.36 (val years 0.43 vs 0.26); within region zero minus moving: NW shelf +0.05, W open -0.13, E open -0.06. Masked NCC lead 1 (18,379 zero / 58,660 moving): r_ltm median 0.74 vs 0.60; within region +0.03 / -0.03 / +0.08 (NW / W / E). Results results/static_zero_tiles.json, figures figures/static_zero_tiles_{map,covariates}.png.
+- Test 3, scalar-a scan (a 0..1.2, common set fixed across 14 a x 5 bases + step 1 + persistence + bases alone; n 1.72 / 1.40 / 1.26 / 1.21 / 1.13 M px): script reproduces tr_rea_geo_wind metrics.json common-set MAE exactly (step 1 0.1596, x0.25 0.1594 at lead 1). MAE-optimal a: none 0.3/0.2/0.2/0.2/0.1; doy and harm 0.3/0.25/0.2/0.2/0.1; run 0.2/0.1/0.1/0.1/0.1; lp 0.3/0.25/0.25/0.2/0.25. Band (20-70 km) and anomaly-correlation optima 0.1-0.4. Best MAE leads 1-5: doy 0.1584/0.1917/0.2173/0.2355/0.2438, lp 0.1586/0.1912/0.2171/0.2348/0.2432, none 0.1584/0.1910/0.2171/0.2344/0.2432, step 1 0.1587/0.1904/0.2163/0.2335/0.2424. doy@0.3 - step 1 (day bootstrap 95 % CI): -0.0003 [-0.0007, +0.0002] l1, +0.0014 to +0.0031 at l2-l5 (CIs exclude 0); lp@0.3 - step 1 -0.0001 [-0.0003, +0.0001] l1, +0.0008 to +0.0014 l2-l5; lp@0.3 - x0.25 within +-0.0005, all CIs include 0. Base alone: B_lp 0.1848 l1 / 0.2360 l5 (l5 below step 1 0.2424); B_doy 0.36-0.38. At a = 1.0 MAE l1: none 0.1690, doy 0.1678, lp 0.1661. Tables results/static_scan.md, figures figures/static_scan_{landscape,best_a}.png.
+- Test 3, short training with the lp base (5 epochs, init 0.25, models/tracer/trs_lp_factor, trs_lp_decomp): factor run (rea+geo+wind) best epoch 0 (init; val own mean-lead flat within 0.0007), ocean-mean a 0.17-0.21 over epochs 1-5 (step 1 0.16-0.17). Decomp run best epoch 1; common set (n 1.84 M l1) model - step 1 -0.0007 / -0.0001 / -0.0002 / +0.0002 / 0.0000. geo_mean alpha epoch 5 W open 0.72 / E open 0.65 vs 0.58 / 0.45 for step-1b tr1b_pix_s0 at epoch 5 (no base); NW shelf 0.24 vs 0.15. Single seed. results/static_train.md.
+- Test 3, motion of A (NCC on the spectral-cache pairs, block matching lags 1-2; bases in-sample on train days): raw cache numbers reproduced (77,039 accepted, slope 0.46 / 0.42, BM zero 0.482). NCC zero share l1/l2/l3: ln C 0.239/0.132/0.087; doy 0.185/0.077/0.039; harm 0.188/0.080/0.041; lp 0.252/0.153/0.108; run 0.380/0.253/0.181. Slope on current l1 (e, n): ln C 0.46, 0.42; doy 0.51, 0.47; harm 0.51, 0.47; lp 0.48, 0.46; run 0.38, 0.35; at l3 0.16-0.22 for every field. Lead-2-on-lead-1 OLS 1.04-1.16 (e) for every field; median |shift| l1 -> l3: ln C 1.16 -> 3.31, doy 1.32 -> 3.91, lp 1.11 -> 3.25. BM zero share lag 1: ln C 0.48, doy 0.41, harm 0.42, lp 0.45, run 0.72. Accepted counts fall with base removal (NCC l1 62.6-71.0 k vs 77.0 k). results/static_anom_motion.{json,md}, figure figures/static_anom_motion.png.
+- Open questions: why the OLS lead-k-on-lead-1 slopes (real 1.08 / 0.74) sit below the synthetic f = 0 values (1.45-1.60 / 1.66-1.92) while median ratios match f = 0; whether real measurement noise (lower NCC acceptance) is larger than in the synthetic fields.
+
+## Learned tracer diagnostics: loss landscape, synthetic recovery, training dynamics (Black Sea 4 km; 2026-10-19; chl_cnn/tracer_diag.py, analyses/tracer/diag_*.py)
+- Assumptions: val years only (2017, 2021), trainer val starts (every 2nd) restricted to those with store days t-1..t+6 consecutive (351 -> 348; needed for the ±1 day current shift); test years not scored. Scalar model u_eff = a × u_rea (no geo / wind / source). Fixed set = target observed and prediction valid for every a in 0..1.2 (step 0.05, + 0.17) and, for the sampling scan, every sampling mode; own set = each a's valid set. Landscape minimum = parabolic vertex through the grid argmin. Band = tracer.BandPass 24-150 km, filter mask = scored set. CIs: 300 day-bootstrap resamples. Moving / zero-shift subsets: lead-1 accepted spectral-motion patches of the start day (|shift| ≥ 1 px / integer peak 0), pixels in both dropped (612 k px-days), applied to all leads. tracer.py / train_tracer.py unchanged (source-run options by in-process patches in diag_src_runs.py).
+- Code checks: scan at a = 0.25 / 1.0 on the unfiltered val starts reproduces tr_rea_geo_wind's metrics["best"] adv_x0.25 / adv_x1.0 own-set MAE to 1e-11 with identical n. No non-finite predictions inside valid masks (0 in every scan). Source-run per-day records reproduce history val_model_common to 2e-11.
+- Test 1, minimum a by lead, fixed-set pixel MAE [95 % CI] (n fixed px 1.72 M at lead 1, 1.12 M at lead 5):
+
+| variant | l1 | l3 | l5 | mean lead |
+|---|---|---|---|---|
+| base (u_rea, n_sub 4, bilinear) | 0.31 [0.29, 0.33] | 0.16 [0.14, 0.19] | 0.15 [0.12, 0.17] | 0.19 [0.17, 0.21] |
+| currents of day j-1 / j+1 | 0.24 / 0.30 | 0.13 / 0.18 | 0.12 / 0.15 | 0.15 / 0.19 |
+| n_sub 1 / 16 | 0.31 / 0.31 | 0.17 / 0.16 | 0.15 / 0.15 | 0.19 / 0.19 |
+| nearest / bilinear / bicubic (strict set, 1.43 M px) | 0.28 / 0.31 / 0.30 | 0.17 / 0.18 / 0.18 | 0.17 / 0.16 / 0.16 | 0.20 / 0.20 / 0.20 |
+| geo_mean component instead of u_rea | 0.61 | 0.36 | 0.26 | 0.37 |
+| base, train starts (every 3rd, n 817) | 0.31 | 0.21 | 0.18 | 0.21 |
+| base, moving patches (n 833 k / 445 k px) | 0.41 | 0.21 | 0.16 | - |
+| base, zero-shift patches (n 165 k / 85 k px) | 0.18 | 0.12 | 0.12 | - |
+
+  Band-passed MAE minima within 0.05 of the pixel minima (base 0.32 / 0.22 / 0.15); Pearson-r maxima base 0.33 / 0.20 / 0.18 (pixel), 0.36 / 0.26 / 0.20 (band). Flatness, MAE(0.5) - MAE(0.17), fixed set: lead 1 +0.0004 [0.0000, 0.0008], lead 3 +0.0051, lead 5 +0.0072 (band +0.0001 / +0.0031 / +0.0056); moving patches lead 1 -0.0015; zero-shift patches lead 1 +0.0053. MAE at the minimum vs a = 0: lead 1 0.1584 vs 0.1630, lead 5 0.2431 vs 0.2468.
+- Test 2, synthetic (truth a = 0.5; anomaly GRF calibrated to the observed patch ring spectrum minus climatology, advected with 0.5 u_rea, n_sub 8, bicubic; real cloud masks; same 348 val starts; fixed-set pixel minimum; trained = scalar a, init 0.25, lr 3e-2, 306 steps on train starts):
+
+| case | l1 | l3 | l5 | mean lead | trained a |
+|---|---|---|---|---|---|
+| anomaly only | 0.50 | 0.50 | 0.50 | 0.50 | 0.500 |
+| + doy climatology base (static) = "none" | 0.46 | 0.48 | 0.49 | 0.48 | 0.486 |
+| none + iid noise σ 0.094 | 0.43 | 0.47 | 0.48 | 0.47 | 0.479 |
+| none + day-specific correlated noise (1 - rho0) P | 0.43 | 0.47 | 0.48 | 0.48 | 0.479 |
+| none + static 30 % of anomaly variance | 0.29 | 0.37 | 0.43 | 0.37 | 0.341 |
+| none + static 50 % | 0.18 | 0.10 | 0.05 | 0.09 | 0.073 |
+| none + Lagrangian decay (per-wavelength e-folding) | 0.40 | 0.42 | 0.42 | 0.42 | 0.413 |
+| none + correlated noise + static 30 % + decay | 0.24 | 0.13 | 0.07 | 0.12 | 0.104 |
+
+  Day-bootstrap 95 % CI width at lead 1 ≤ 0.02 in every case. Inputs (results/diag_prep.json): σ_iid = sqrt(semivariance at lag 1 px) = 0.094, an upper bound (OLS nugget from lags 1-3 px is negative, -0.005); rho0 = exp(lead-0 coherence intercept), capped at 1; synthetic signal spectrum floored at 2 % of the observed power in rings 14-16 (9-10 km). Calibrated ring power within ±8 % of target except ring 2 (+15 %). Synthetic anomaly variance at observed px 0.04 vs real 0.21 (real includes > 145 km anomalies not represented).
+- Test 3a, scalar a (= 1.5 sigmoid(θ), Adam, batch 16, all 2,449 train starts, 459 steps): lr 3e-2 converges to 0.165 / 0.170 / 0.172 from a0 0.1 / 0.5 / 1.0; lr 3e-3 reaches 0.169 / 0.249 / 0.526; lr 3e-4 moves ≤ 0.05 (0.112 / 0.457 / 0.953). Final val MAE (mean lead, own) 0.21543-0.21545 for the converged runs. The converged a (0.17) is below the pooled landscape minimum on train starts (0.21-0.22). Check over all train batches: the batch-mean training loss is lowest at a ≈ 0.21-0.225 while its autograd gradient crosses zero at a ≈ 0.17 (gradient +0.0049 at 0.20, loss still falling). Finite differences at a = 0.2 (60 batches): with the valid mask held fixed, autograd matches FD within 3 % at every lead (l5 +0.0177 vs +0.0172); with the mask free to vary with a (as the scored loss), FD is +0.0042 vs autograd +0.0180 at l5 (l3 -0.0022 vs +0.0056); 0.3-2.5 % of pixels change validity between a = 0.19 and 0.21. On the synthetic data, trained a and landscape minima agree within 0.03.
+- Test 3b, source runs (rea+geo+wind --source, seed 0, 12 evals × 50 steps of batch 16, val common set, 351 starts; single seed each):
+
+| run | val l5 range | mean abs change between evals l3 / l5 | r(change l5, control) | final a |
+|---|---|---|---|---|
+| control (lr 3e-3, lr-wind 1e-2) | 0.0223 | 0.0035 / 0.0085 | 1.00 | 0.197 |
+| wind lr ×0.1 | 0.0225 | 0.0035 / 0.0086 | 1.00 | 0.186 |
+| dropout 0.2 in the source MLP | 0.0192 | 0.0029 / 0.0073 | 0.99 | 0.198 |
+| AdamW weight decay 1.0 on the source net | 0.0143 | 0.0022 / 0.0056 | 0.83 | 0.200 |
+| g_max 0.1 | 0.0124 | 0.0024 / 0.0043 | 0.84 | 0.190 |
+| all lr ×0.1 | 0.0192 (drift) | 0.0017 / 0.0030 | 0.54 | 0.191 |
+| tr_src (earlier, 20 × 153 steps) | 0.0285 | 0.0033 / 0.0077 | - | 0.219 |
+
+  Last-eval val l1 / l5: control 0.1517 / 0.2334, wind lr ×0.1 0.1517 / 0.2332, dropout 0.1517 / 0.2316, g_max 0.1 0.1522 / 0.2288, wd 0.1529 / 0.2276, lr ×0.1 0.1531 / 0.2249 (l1 still falling). The eval-to-eval l5 changes coincide across runs that share the batch order (r 0.83-0.99, 11 transitions). Per-day decomposition (control, lead 5): the 10 days with the largest |change| carry 21 % of the summed |change| (9 % of pixels); 62 % of pixel-days change in the direction of the total; leaving out the 10 / 30 most variable days keeps the zig-zag (range 0.0223 -> 0.0202 / similar shape, figure). r(val mean S, val l5) over evals: control -0.84, wd -0.75, dropout -0.78, g_max 0.1 +0.14, lr ×0.1 +0.78.
+- Outputs: results/diag_tables.md, diag_summary.json, diag_landscape_*.npz, diag_synth_*.npz / diag_synth_train_*.json, diag_scalar_lr*.json, diag_gradcheck*.json, diag_prep.json; models/tracer/diag_src_*/ (+ perday_val.npz); figures analyses/tracer/figures/diag_{landscape_base,landscape_variants,synth,scalar_train,gradcheck,src_val_curves,src_perday}.png. Logs ~/mind_the_chl_gap/logs/diag_*.log.
+- Interpretation (hedged): the trivial settings tested (n_sub, sampling kernel, ±1 day current timing, learning rate given enough steps) move the minimum by ≤ 0.07 and do not reach the 0.4-0.5 range; the landscape itself has its minimum at 0.15-0.31 and falls with lead, a pattern the synthetic reproduces only when a pinned (static) component and decay are present, consistent with the learned factor reflecting the data's mixture of moving and stationary structure rather than an optimisation failure. The lower trained a (0.17 vs loss minimum 0.21) is consistent with the valid-set selection effect (pixels leaving the valid set as a grows), which gradients do not see. The step-2 val swings appear tied to the training batch sequence and shrink with smaller steps / a tighter source bound; they are not carried by a few val days.
+- Open questions: why the own-set selection effect lowers the gradient optimum on real data but not on synthetic; whether the val swings follow the seasonal composition of recent batches (a second seed would separate batch order from initialisation).
+
+## Flow gate: oracle motion ceiling and motion-only predictors vs the gap-filler (Black Sea 4 km; 2026-10-20; analyses/flow_gate/check_{a,b}.py)
+- Assumptions: val years 2017 / 2021 only (no train years added); crop 177 x 273; CPU only. Full list in analyses/flow_gate/results/flow_gate.md.
+- Check A, lead 1, accepted masked-NCC patches (spectral_motion cache; 13,026 val accepted of 77,039 all years; 12,044 patches with scored px on 520 days). Common set: day t+1 observed in patch, day t observed at x, x0.25 / oracle / 0.46-current-shift valid; px counted once per overlapping patch (8,419,723 patch-px). MAE: persistence 0.1426, x0.25 0.1380, oracle NCC shift (bilinear, from day t) 0.1381, 0.46 x patch-mean current shift 0.1392. Oracle gain vs persistence 0.0045 [0.0039, 0.0051], vs x0.25 -0.0001 [-0.0006, 0.0003] (day bootstrap).
+  - Inner 16 x 16 px of each patch (2.34 M patch-px): persistence 0.1453, x0.25 0.1404, oracle 0.1324, 0.46 cur 0.1403; oracle gain vs x0.25 0.0080 [0.0072, 0.0087], vs persistence 0.0128 [0.0119, 0.0137].
+  - By region, oracle gain vs x0.25: NW shelf -0.0010 [-0.0029, 0.0007] (4,356 patches), W open +0.0002, E open +0.0003, Anatolian -0.0082 [-0.0114, -0.0050] (85 k px), Crimea/Caucasus -0.0075 (54 k px), Marmara +0.0048 (685 px), Azov 0. By season: DJF -0.0021, MAM +0.0003, JJA +0.0002, SON -0.0013 [-0.0026, -0.0000].
+  - Coverage: accepted-patch footprints hold 56.5 % of day-t+1 observed px of all 723 val lead-1 pairs; the scored common set 41.3 % (unique px); 525 of 723 pairs have >= 1 accepted patch.
+  - Checks: zero-shift oracle = persistence exactly; reversed-sign oracle 0.1572 and row/col-swapped oracle 0.1518 vs persistence 0.1418 on the same px.
+- Check B, best gap-filler (pinn/t3d blk4_..._cont50_lr1e-4_cont50), 1,062,322 hidden px on 182 val days; gap-filler MAE 0.1498 (= metrics.json); hidden masks reproduce from store + donors with 0 mismatches. Paired MAE (predictor / gap-filler on the same px, coverage):
+
+| predictor | pred - gap-filler [CI] | pred | gap-filler | coverage |
+|---|---|---|---|---|
+| (a) persistence, nearest visible day t-1..t-4 | +0.0892 [+0.0789, +0.0998] | 0.2165 | 0.1274 | 52.9 % |
+| (b) x0.25 advected, nearest valid past day | +0.0843 [+0.0741, +0.0950] | 0.1964 | 0.1121 | 41.3 % |
+| (c) x0.25 advected, nearest valid day t-4..t+4 | +0.0822 [+0.0731, +0.0926] | 0.1994 | 0.1172 | 60.7 % |
+| (d) DOY climatology | +0.2086 [+0.1825, +0.2376] | 0.3583 | 0.1498 | 100 % |
+
+  - By distance into the gap 1 / 2-3 / 4-7 / 8-15 / 16+ px, (c) - gap-filler: +0.147 / +0.120 / +0.098 / +0.069 / +0.045 (CIs exclude 0 in every bin); (c) MAE 0.19-0.20 in every bin, gap-filler on the same px 0.047 -> 0.158; (c) coverage 66 % -> 55 %. Same pattern for (a), (b).
+  - By source lag, (b) - gap-filler: lag 1 +0.068, 2 +0.082, 3 +0.106, 4 +0.108; (c) future lag 1 +0.071. By region: every predictor x region CI above 0; (b) / (c) cover 0 % of Azov and < 1 % of Marmara (no valid currents).
+  - (a) and (b) both defined (427 k px): persistence 0.1966, x0.25 advected 0.1951, gap-filler 0.1116.
+  - Gradient ratio / corr, lag 1 px, >= 1 hidden end, predictor defined at both ends: (b) 1.056 / 0.344 vs gap-filler 0.547 / 0.646 (824 k pairs); (c) 1.171 / 0.301 vs 0.539 / 0.644 (1.22 M pairs). Both-hidden pairs: same values within 0.03.
+  - Checks: lag -1 advected 0.1745 vs reversed velocity 0.1807 vs persistence 0.1784 (158 k px); lag +1 0.1628 / 0.1689 / 0.1667 (129 k px).
+  - Data quality: 0 non-finite gap-filler values; 2,241 hidden px with CHL > 100 kept (train_pinn has no cap); 2 days with no visible px; 1-2 days per lag with a missing calendar context day or advection path; viz.draw_day's store-index rule differs from train_pinn's calendar rule on 18 days (56,262 px); 241 region ties.
+- Outputs: analyses/flow_gate/results/flow_gate.{md,json}, check_{a,b}.{md,json}; figures analyses/flow_gate/figures/check_a_oracle_ceiling.png, check_b_distance.png.
+- Open questions: why the oracle ties x0.25 on whole patches but leads by 0.008 on the inner 16 x 16 px; why (c)'s gradient ratio exceeds 1 (pairs can mix source days).
+
+## Band-split mean + anomaly tracer, tests 1 and 2 (Black Sea 4 km; 2026-10-19/20; chl_cnn/tracer_band.py, analyses/tracer/band_test1.py, band_train.py, band_report.py)
+- Model: ln C(x, t+k) = B(x, t+k) + Σ_b D_b(k) A_b(X^b_k(x), t). B = 150 km low-pass of day t (tracer_static lp), stepped forward by a learned Eulerian source S_B (test 2). A_b = anomaly in bands < 20 / 20-50 / 50-150 km. Band b moves with a_b u_rea and fades as D_b = exp(-k / tau_b): constant tau_b, or tau_b x MLP(strain, |u|, MLD, doy) ("phys"). Val 351 starts (2017 + 2021), test-1 common set (n 1,713,353 px lead 1 to 1,121,757 lead 5); test years not scored.
+- Test 1 (no training; x0.25 currents, measured tau 1.67 / 2.38 / 13.77 d): MAE leads 1-5 0.1549 / 0.1837 / 0.2073 / 0.2231 / 0.2305 vs step 1 0.1586 / 0.1903 / 0.2162 / 0.2334 / 0.2423 and persistence 0.1630 / 0.1954 / 0.2209 / 0.2385 / 0.2467. Bands with no motion (a 0, measured tau) 0.1572 / 0.1855 / 0.2088 / 0.2246 / 0.2318. Velocity x0.25 / x0.45 / step-1 u_eff within 0.0005 of each other. Full grid in results/band_test1.md.
+- Test 2 (20 epochs, lr 3e-3, batch 16; seeds 0 / 1), best epoch, MAE leads 1-5: const s0 (ep 8) 0.1487 / 0.1763 / 0.1907 / 0.2093 / 0.2129; const s1 (ep 2) 0.1491 / 0.1759 / 0.1926 / 0.2099 / 0.2143; phys s0 (ep 5) 0.1486 / 0.1755 / 0.1900 / 0.2073 / 0.2116; phys s1 (ep 2) 0.1489 / 0.1755 / 0.1916 / 0.2087 / 0.2131. Last-5-epoch means 0.1482-0.1486 / 0.1776-0.1790 / 0.1913-0.1933 / 0.2137-0.2167 / 0.2205-0.2238. Step 2 tr_src on the same px 0.1516 / 0.1809 / 0.1982 / 0.2158 / 0.2206.
+  - Model - step 1, best epoch: -0.0095 to -0.0100 (l1) to -0.0281 to -0.0308 (l5), all CIs exclude 0; last 5: -0.0100 to -0.0104 (l1), -0.0185 to -0.0219 (l5), all CIs exclude 0. Model - test 1, last 5: CIs include 0 at leads 2, 4, 5 for const s0 / s1 and phys s0, at leads 4, 5 for phys s1.
+  - Phys - const, matched seed: best epoch -0.0020 to +0.0000; last 5 s0 -0.0001 to +0.0016 (l3, l5 CIs above 0), s1 -0.0004 to -0.0018 (CIs below 0).
+  - Learned a (< 20 / 20-50 / 50-150 km): 0.67-0.73 / 0.02-0.03 / 0.34-0.37 in all four runs. tau const 0.97-1.14 / 2.30-2.60 / 9.3-10.9 d; phys base 1.35-1.39 / 2.25-2.29 / 12.7-13.3 d. Phys tau multiplier decreases with log strain, |u| and log MLD and towards January in both seeds (figures/band_test2_tau_pd.png); seasonal mean multiplier 20-50 km 1.4-1.9 DJF/SON, 2.0-2.4 MAM/JJA.
+  - Lead-1 basin-mean dB -0.012 to -0.046 ln CHL/day, most negative MAM / JJA. r(dB, val l5 MAE) over epochs -0.58 to -0.68 (n 20). Val l5 range over epochs 0.2116-0.2326.
+  - Gradient ratio / corr, lead 1, lag 1 px: 0.604-0.620 / 0.563-0.568 (test 1 0.669 / 0.547, step 1 0.896 / 0.511, step 2 0.840 / 0.516, persistence 1.005 / 0.459).
+  - Lead-1 MAE by region: every band run below test 1, step 1 and tr_src in every scored region (W open 0.1282-0.1286 vs tr_src 0.1304; NW shelf 0.1938-0.1945 vs 0.1964); Azov 0 px.
+- Outputs: results/band_test{1,2}.{md,json}; figures/band_test1_*.png, band_test2_*.png; models/tracer/trb_{const,phys}_s{0,1}. trb_phys_s0 was interrupted by an instance stop after epoch 3 and resumed from state.pt (epoch 4 recomputed).
+- 2026-10-20: tracer project shelved; summary in analyses/tracer/TRACER.md (figure figures/tracer_summary.png, analyses/tracer/summary_fig.py). Tracer checkpoints (*.pt) deleted except trb_phys_s0, trb_const_s0 and tr_rea_geo_wind/model.pt (step-1 reference loaded by band_train / band_test1 / static_*); JSON and npz outputs kept for every run.
+
+## 2024 hackweek ("upstream") protocol: our 3D stem vs their public U-Net on identical pixels (IO; 2026-10-20; chl_cnn/store_io_up.py, train_pinn.py --store io_up --fake-mask shift10, analyses/upstream/compare.py)
+- Protocol, checked against U-Net_Tutorial cells 6, 9, 12, 28-29: box 32N-11.75S, 42-101.75E (176 x 240); 9193 record days (>= 1 L3 px in box, 1997-10-01..2022-12-31), identical to the time axis of their U-Net_with_CHL_pred.zarr; hidden = finite L3(t) & cloud code 0 at record t+10, one fixed mask per day; t+-1 CHL unmasked; slices inclusive (train 2015-01-01..2018-01-01, val 2018-01-01..2019-01-01, test 2019-01-01..2020-01-01, 366 days each); label z-score over all records (mean -1.7432, std 0.8358, n 75.2 M px). Store hidden mask = their rule recomputed from IO.zarr on 3 days (2015-03-14, 2018-07-01, 2019-12-27): 0 mismatched px. No calendar gaps in 2014-12-20..2020-01-15 (records = calendar days there). Cloud code 0 <=> finite L3 on every store px.
+- Deviations: train drops 2018-01-01 (a val day in their slices); hidden px outside our ocean mask dropped (val 2,171 of 1,946,508; test 2,636 of 2,854,295); the year channel of A is outside its training range on val / test (train 0.86-1.14, val 1.29, test 1.43); B's sin/cos uses doy / 365.25 (theirs: days since 1900 / 365); B gets no real-cloud / fake-cloud flags (only the visible mask), no clim / coords / year, so no --residual; physics loss (upwind, lam 0.3) on both, currents enter B only through the loss.
+- Runs (60 ep, batch 8, single seed): up_t3d_lam0p3_ours (A, 9 features, +-4 d, clim/coords/residual/year; best ep 52, 23.9 min) and up_t3d_lam0p3_theirin (B, u/v wind, SST, air temp on day t only, CHL t+-1, --doy-input --land-input; best ep 28, 16.5 min). Folder models/pinn/upstream/.
+
+| model | val MAE | test MAE | val / test RMSE | test bias | test grad ratio | test grad corr | test z all-px MAE raw | test z composite | n px val / test |
+|---|---|---|---|---|---|---|---|---|---|
+| A ours, our inputs | 0.0966 | 0.0998 | 0.1714 / 0.1663 | -0.0001 | 0.722 | 0.719 | 0.0292 | 0.0225 | 1,944,337 / 2,851,659 |
+| B ours, their inputs | 0.0961 | 0.0976 | 0.1699 / 0.1646 | -0.0105 | 0.704 | 0.730 | 0.0277 | 0.0220 | same |
+| 2024 U-Net (level3_pred) | 0.1067 | 0.1075 | 0.1782 / 0.1743 | -0.0102 | 0.716 | 0.700 | 0.0266 | 0.0238 | same |
+| DOY climatology 2015-17 | 0.2605 | 0.2653 | 0.3712 / 0.3874 | -0.0126 | 0.505 | 0.483 | 0.1063 | 0.0589 | same |
+
+  Val z raw / composite: A 0.0208 / 0.0149, B 0.0203 / 0.0149, U-Net 0.0187 / 0.0161, clim 0.0810 / 0.0394. Gradient pairs: val 3.71 M, test 5.48 M. 366 days per split, none with < 5 hidden px; 0 non-finite predictions in the scored px; 0 all-zero prediction days.
+- Their published test MAE 0.0301 (MSE 0.00815) recomputed from level3_pred (raw output at finite-target px, 0 error at the 67 % of test px with NaN target): MAE 0.0266, MSE 0.00819. level3_pred carries no output at land / cloud px; UNet_Evaluation (the producer) ran 2024-08-06, the tutorial's evaluated training 2024-08-15, so the two may be different fits of the same model file.
+- Default protocol unchanged: --eval-only --init-from t3d_dil_c4_60ep_gdl100 (models/pinn/t3d/up_check_default_eval) gives val 0.130165 / test 0.130548, same n, as the original metrics.json.
+- Outputs: analyses/upstream/results/{summary.json,summary.csv,per_day_val.csv,per_day_test.csv,check_store.json}; figures analyses/upstream/figures/{summary_metrics,per_day_mae_test}.png; logs ~/mind_the_chl_gap/logs/upstream/.
+- Open questions: why the gap between 0.0266 and 0.0301 in MAE is not matched in MSE; whether B's earlier best epoch (28 vs 52) and A ≈ B reflect the protocol (unmasked t+-1) or seed noise (single seed each).
+- 2026-10-20, follow-up: --vis-weight 1.0 (every observed day-t px weighted equally in the pixel loss), everything else as the vis 0.1 runs (L1, grad loss 100, upwind lam 0.3, 60 ep, seed 0): up_t3d_lam0p3_ours_vis1, up_t3d_lam0p3_theirin_vis1. Loss check (train_pinn.data_loss / grad_terms, not changed): the pixel term is then a plain mean over observed px; the gradient term still uses only pairs with >= 1 hidden end (visible-visible pairs excluded); the physics residual pastes visible px before the residual, so the output there gets no physics gradient; neighbour heads are empty under --context-clouds none. Same pixels as the table above; visible = observed ocean px not in their hidden mask (val 2,222,937, test 2,242,444).
+
+| model | vis w | best ep | val / test hidden MAE | val / test RMSE | val / test bias | test grad ratio / corr | val / test z raw | val / test z comp | val / test visible MAE |
+|---|---|---|---|---|---|---|---|---|---|
+| A ours | 0.1 | 52 | 0.0966 / 0.0998 | 0.1714 / 0.1663 | -0.0085 / -0.0001 | 0.722 / 0.719 | 0.0208 / 0.0292 | 0.0149 / 0.0225 | 0.0328 / 0.0374 |
+| A ours | 1.0 | 46 | 0.0971 / 0.1002 | 0.1715 / 0.1669 | -0.0043 / +0.0013 | 0.715 / 0.718 | 0.0209 / 0.0290 | 0.0149 / 0.0225 | 0.0330 / 0.0361 |
+| B their inputs | 0.1 | 28 | 0.0961 / 0.0976 | 0.1699 / 0.1646 | -0.0063 / -0.0105 | 0.704 / 0.730 | 0.0203 / 0.0277 | 0.0149 / 0.0220 | 0.0303 / 0.0318 |
+| B their inputs | 1.0 | 33 | 0.0966 / 0.0983 | 0.1728 / 0.1670 | -0.0102 / -0.0105 | 0.700 / 0.722 | 0.0195 / 0.0271 | 0.0149 / 0.0220 | 0.0259 / 0.0283 |
+| 2024 U-Net | - | - | 0.1067 / 0.1075 | 0.1782 / 0.1743 | -0.0149 / -0.0102 | 0.716 / 0.700 | 0.0187 / 0.0266 | 0.0161 / 0.0238 | 0.0152 / 0.0163 |
+| DOY climatology | - | - | 0.2605 / 0.2653 | 0.3712 / 0.3874 | -0.0758 / -0.0126 | 0.505 / 0.483 | 0.0810 / 0.1063 | 0.0394 / 0.0589 | 0.2404 / 0.2718 |
+
+  Hidden px n val 1,944,337 / test 2,851,659, 366 days each; 0 non-finite predictions. Epoch-60 val: A 0.0971 (vis 0.1) / 0.0977 (vis 1.0); B 0.0977 / 0.0978. Figures analyses/upstream/figures/{summary_metrics,per_day_mae_test}.png now include the vis 1.0 rows (panel added: visible-pixel MAE).
+- Interpretation (hedged): with equal pixel weights, visible-pixel MAE stays 1.6-2.2x the U-Net's, consistent with the parts of the loss still focused on hidden px (gradient pairs, physics paste), or with capacity spent on the hidden task; hidden-MAE changes are +0.0004 to +0.0007 on single seeds, with no seed-noise estimate on this protocol.

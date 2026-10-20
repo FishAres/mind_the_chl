@@ -1,6 +1,6 @@
 # Training runs: index
 
-Generated 2026-10-17 22:40 by `python -m chl_cnn.runs_index` (196 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
+Generated 2026-10-20 21:43 by `python -m chl_cnn.runs_index` (232 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
 
 - **val / test MAE**: hidden-pixel MAE in ln CHL (fake clouds from a donor day). Best val epoch; test at that epoch. Only comparable within one region and one `val_stride` / `donor_exclude` setting.
 - **settings**: non-default flags only (see the trainer docstrings). `stop_epoch=N`: the schedule spans `epochs` but training stopped at N.
@@ -99,7 +99,7 @@ Generated 2026-10-17 22:40 by `python -m chl_cnn.runs_index` (196 runs). What ea
 | deq_unroll_k1 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1449 | 0.1484 | 12 | 2026-10-11 | done, weights |
 | deq_and24 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1581 | 0.1632 | 12 | 2026-10-13 | done, weights |
 
-## pinn/t3d (22 runs)
+## pinn/t3d (26 runs)
 
 | run | region | settings | val MAE | test MAE | epochs | finished | status |
 |---|---|---|---|---|---|---|---|
@@ -113,10 +113,13 @@ Generated 2026-10-17 22:40 by `python -m chl_cnn.runs_index` (196 runs). What ea
 | blk4_t3d_c4_gdl100_lam0 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=20 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1638 | 0.1585 | 20 | 2026-10-16 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=20 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1637 | 0.1585 | 20 | 2026-10-16 | done, weights |
 | blk4_t3d_c4_gdl100_lam0_b16_50ep | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1561 | 0.1509 | 50 | 2026-10-17 | done, weights |
+| blk4_t3d_c4_gdl100_lam0_b16_50ep_geo | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1556 | 0.1478 | 50 | 2026-10-17 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1546 | 0.1490 | 50 | 2026-10-17 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 continue_from=blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep | 0.1499 | 0.1437 | 50 | 2026-10-17 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 lr=0.0001 continue_from=blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50 | 0.1498 | 0.1430 | 50 | 2026-10-17 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam1_b16_stop12 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=1.0 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 stop_epoch=12 | 0.1978 | 0.1893 | 12 | 2026-10-17 | done, weights |
+| blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1536 | 0.1504 | 50 | 2026-10-18 | done, weights |
+| blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_w96 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=96 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1527 | 0.1480 | 50 | 2026-10-18 | done, weights |
 | t3d_dil_c2 | Indian Ocean | temporal3d feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1406 | 0.1434 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4 | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1378 | 0.1398 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4_60ep | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=60 year_input phys=upwind batch=8 | 0.1331 | 0.1344 | 60 | 2026-10-14 | done, weights |
@@ -125,6 +128,16 @@ Generated 2026-10-17 22:40 by `python -m chl_cnn.runs_index` (196 runs). What ea
 | t3d_fc_b8 | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=20 year_input no_chl_today window=t-8..t+0 phys=upwind context_clouds=none batch=8 | 0.1251 | 0.1321 | 20 | 2026-10-16 | done, weights |
 | t3d_fc_b8_dx8 | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=12 year_input no_chl_today blocks=8 window=t-8..t+0 phys=upwind context_clouds=none donor_exclude=8 batch=8 init_from=t3d_fc_b8 | nan | 0.1323 |  | 2026-10-16 | done, weights |
 | t3d_nc_b8 | Indian Ocean | temporal3d feat=9 ctx=2 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=20 year_input blocks=8 window=t-8..t+0 phys=upwind context_clouds=none donor_exclude=8 batch=8 | 0.1090 | 0.1126 | 20 | 2026-10-16 | done, weights |
+| up_check_default_eval | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=t3d_dil_c4_60ep_gdl100 | nan | 0.1305 |  | 2026-10-20 | done, weights |
+
+## pinn/upstream (4 runs)
+
+| run | region | settings | val MAE | test MAE | epochs | finished | status |
+|---|---|---|---|---|---|---|---|
+| up_t3d_lam0p3_ours | Indian Ocean, 2024 hackweek protocol | store=io_up temporal3d feat=9 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 epochs=60 year_input blocks=8 phys=upwind context_clouds=none batch=8 fake_mask=shift10 | 0.0966 | 0.0998 | 60 | 2026-10-20 | done, weights |
+| up_t3d_lam0p3_ours_vis1 | Indian Ocean, 2024 hackweek protocol | store=io_up temporal3d feat=9 ctx=4 lam=0.3 vis_weight=1.0 grad_weight=100.0 width=64 epochs=60 year_input blocks=8 phys=upwind context_clouds=none batch=8 fake_mask=shift10 | 0.0971 | 0.1002 | 60 | 2026-10-20 | done, weights |
+| up_t3d_lam0p3_theirin | Indian Ocean, 2024 hackweek protocol | store=io_up temporal3d feat=4 ctx=1 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 epochs=60 feat_today_only doy_input land_input blocks=8 phys=upwind context_clouds=none batch=8 fake_mask=shift10 | 0.0961 | 0.0976 | 60 | 2026-10-20 | done, weights |
+| up_t3d_lam0p3_theirin_vis1 | Indian Ocean, 2024 hackweek protocol | store=io_up temporal3d feat=4 ctx=1 lam=0.3 vis_weight=1.0 grad_weight=100.0 width=64 epochs=60 feat_today_only doy_input land_input blocks=8 phys=upwind context_clouds=none batch=8 fake_mask=shift10 | 0.0966 | 0.0983 | 60 | 2026-10-20 | done, weights |
 
 ## spatial (85 runs)
 
@@ -236,3 +249,36 @@ Generated 2026-10-17 22:40 by `python -m chl_cnn.runs_index` (196 runs). What ea
 | udeB_relax_scalar | Black Sea 2 km |  | 0.2286 |  | 5 | 2026-10-12 | done, weights |
 | smk_io_mlp | Indian Ocean |  | 0.1784 |  | 2 | 2026-10-10 | done, weights |
 | smk_io_persist | Indian Ocean |  | 0.1857 |  | 1 | 2026-10-10 | done, weights |
+
+## tracer (28 runs)
+
+| run | region | settings | val MAE | test MAE | epochs | finished | status |
+|---|---|---|---|---|---|---|---|
+| tr_rea | Black Sea 4 km |  | 0.2159 |  |  | 2026-10-18 | done |
+| tr_rea_geo | Black Sea 4 km |  | 0.2155 |  |  | 2026-10-18 | done |
+| tr_rea_geo_wind | Black Sea 4 km |  | 0.2153 |  |  | 2026-10-18 | done, weights |
+| tr_rea_geo_wind_reeval | Black Sea 4 km |  | inf |  |  | 2026-10-18 | done |
+| tr_rea_geo_wind_s1 | Black Sea 4 km |  | 0.2152 |  |  | 2026-10-18 | done |
+| tr_rea_geo_wind_s2 | Black Sea 4 km |  | 0.2152 |  |  | 2026-10-18 | done |
+| tr_src | Black Sea 4 km |  | 0.2006 |  |  | 2026-10-18 | done |
+| tr_src_s1 | Black Sea 4 km |  | 0.2031 |  |  | 2026-10-18 | done |
+| tr_src_smoke | Black Sea 4 km |  | 0.2117 |  |  | 2026-10-18 | done |
+| diag_src_ctrl | Black Sea 4 km |  | 0.2009 |  |  | 2026-10-19 | done |
+| diag_src_drop | Black Sea 4 km |  | 0.2011 |  |  | 2026-10-19 | done |
+| diag_src_g0p1 | Black Sea 4 km |  | 0.2020 |  |  | 2026-10-19 | done |
+| diag_src_lr0p1 | Black Sea 4 km |  | 0.2019 |  |  | 2026-10-19 | done |
+| diag_src_lrwind0p1 | Black Sea 4 km |  | 0.2008 |  |  | 2026-10-19 | done |
+| diag_src_smoke | Black Sea 4 km |  | 0.2136 |  |  | 2026-10-19 | done |
+| diag_src_wd | Black Sea 4 km |  | 0.1991 |  |  | 2026-10-19 | done |
+| tr1b_band_s0 | Black Sea 4 km |  | 0.0849 |  |  | 2026-10-19 | done |
+| tr1b_band_s1 | Black Sea 4 km |  | 0.0850 |  |  | 2026-10-19 | done |
+| tr1b_pix_s0 | Black Sea 4 km |  | 0.2143 |  |  | 2026-10-19 | done |
+| tr_rea_geo_wind_reeval1b | Black Sea 4 km |  | inf |  |  | 2026-10-19 | done |
+| tr_src_noC | Black Sea 4 km |  | 0.2102 |  |  | 2026-10-19 | done |
+| trb_const_s0 | Indian Ocean |  |  |  |  | 2026-10-19 | done |
+| trb_const_s1 | Indian Ocean |  |  |  |  | 2026-10-19 | done |
+| trb_smoke | Indian Ocean |  |  |  |  | 2026-10-19 | done |
+| trs_lp_decomp | Indian Ocean |  |  |  |  | 2026-10-19 | done |
+| trs_lp_factor | Indian Ocean |  |  |  |  | 2026-10-19 | done |
+| trb_phys_s0 | Indian Ocean |  |  |  |  | 2026-10-20 | done |
+| trb_phys_s1 | Indian Ocean |  |  |  |  | 2026-10-20 | done |

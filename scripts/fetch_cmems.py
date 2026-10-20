@@ -7,6 +7,7 @@ Needs the copernicusmarine toolbox with credentials already stored (`copernicusm
   python scripts/fetch_cmems.py arrange  --basin blk --coarsen 2          # -> ~/mind_the_chl_gap/data/cmems/blk_2km/<year>.zarr
   python scripts/fetch_cmems.py arrange  --basin blk --coarsen 1          # native 1 km (Med at 1 km is ~5 M px/day: large)
   scripts/fetch_cmems_all.sh blk 1998 2024 2                             # tmux: download + arrange + delete raw, year by year
+  python scripts/fetch_cmems.py download --basin blk --what extra --start 2014-01-01 --end 2014-12-31   # EXTRA 2-D fluxes only
 
 download   one compressed NetCDF per dataset and year under ~/mind_the_chl_gap/data/cmems/<basin>/raw/ (skips existing files)
 arrange    one zarr per year (a failed year leaves nothing behind; re-run to retry): CHL L3/L4 block-averaged by
@@ -15,6 +16,11 @@ arrange    one zarr per year (a failed year leaves nothing behind; re-run to ret
            open_arranged(basin, coarsen) returns all years as one lazy xarray Dataset.
            Variables: chl_l3, chl_l3_n (valid 1 km px per block), chl_l4, qi_chl, thetao, so, uo, vo, mlotst, zos,
            tauuo, tauvo, ocean (L4 ever finite).
+EXTRA      2-D surface fluxes not in the arranged zarrs (Black Sea only): rsntds (net downward shortwave, W m-2, from
+           phy-hflux) and friver (river freshwater flux, kg m-2 s-1, from phy-wflux). `download --what extra` fetches them
+           (no depth axis, so no depth subset); they are not put into the yearly zarrs: chl_cnn/store_blk4_extra.py
+           downloads them year by year, regrids them with phys_on_grid (the same linear interpolation arrange uses) and
+           writes them straight into the 4 km store.
 Rough sizes (uncompressed float32, from the toolbox dry run): Black Sea L3 CHL ~1.2 GB/yr, L4 ~1.2 GB/yr, physics
 ~1.5 GB/yr for 7 fields at 2.5 km; Mediterranean L3 CHL ~7 GB/yr, L4 ~7 GB/yr, physics ~2.5 GB/yr at 4.2 km.
 """
@@ -36,6 +42,7 @@ BASINS = {
         phys=[("cmems_mod_blk_phy-temp_my_2.5km_P1D-m", ["thetao"]), ("cmems_mod_blk_phy-sal_my_2.5km_P1D-m", ["so"]),
               ("cmems_mod_blk_phy-cur_my_2.5km_P1D-m", ["uo", "vo"]), ("cmems_mod_blk_phy-mld_my_2.5km_P1D-m", ["mlotst"]),
               ("cmems_mod_blk_phy-ssh_my_2.5km_P1D-m", ["zos"]), ("cmems_mod_blk_phy-mflux_my_2.5km_P1D-m", ["tauuo", "tauvo"])],
+        extra=[("cmems_mod_blk_phy-hflux_my_2.5km_P1D-m", ["rsntds"]), ("cmems_mod_blk_phy-wflux_my_2.5km_P1D-m", ["friver"])],
         box=dict(minimum_longitude=26.5, maximum_longitude=42.0, minimum_latitude=40.0, maximum_latitude=48.0)),
     "med": dict(
         chl_l3=("cmems_obs-oc_med_bgc-plankton_my_l3-multi-1km_P1D", ["CHL", "QI_CHL"]),
@@ -57,6 +64,11 @@ def download(a):
         jobs += [cfg["chl_l3"], cfg["chl_l4"]]
     if "phys" in a.what:
         jobs += cfg["phys"]
+    if "extra" in a.what:
+        if "extra" not in cfg:
+            raise ValueError(f"no EXTRA datasets defined for {a.basin}")
+        jobs += cfg["extra"]
+    flux2d = {did for did, _ in cfg.get("extra", [])}
     years = range(int(a.start[:4]), int(a.end[:4]) + 1)
     for did, vs in jobs:
         for y in years:
@@ -69,7 +81,7 @@ def download(a):
             t = time.time()
             kw = dict(dataset_id=did, variables=vs, start_datetime=t0, end_datetime=t1, output_directory=str(out), output_filename=f.stem + ".part",
                       file_format="netcdf", netcdf_compression_level=4, disable_progress_bar=True, overwrite=True, **cfg["box"])
-            if did.startswith("cmems_mod"):
+            if did.startswith("cmems_mod") and did not in flux2d:
                 kw.update(minimum_depth=0, maximum_depth=1.5)              # surface layer only
             for attempt in range(3):
                 try:
@@ -109,6 +121,17 @@ def open_arranged(basin, coarsen=2):
     return xr.open_mfdataset(files, engine="zarr", combine="by_coords", consolidated=True, data_vars="minimal", coords="minimal", compat="override")
 
 
+def phys_on_grid(fp, vs, lat, lon, times):
+    """Physics variables vs of one NetCDF (surface layer if it has depth), reindexed to `times` (missing days -> NaN) and
+    linearly interpolated onto the (lat, lon) grid (NaN where any of the 4 neighbours is NaN or outside the model
+    domain), float32, lazy. Used by arrange and by chl_cnn/store_blk4_extra.py."""
+    p = xr.open_dataset(fp, chunks={"time": 50})
+    if "depth" in p.dims:
+        p = p.isel(depth=0, drop=True)
+    p = p.rename(latitude="lat", longitude="lon").reindex(time=times)
+    return {v: p[v].interp(lat=lat, lon=lon, method="linear").astype("float32") for v in vs}
+
+
 def arrange(a):
     """One zarr per year under <basin>_<coarsen>km/ (a failed year leaves no half-written store; re-run to retry).
     With --delete-raw the year's NetCDFs are removed after the year's store is complete."""
@@ -137,12 +160,8 @@ def arrange(a):
             fp = raw / f"{did}_{y}.nc"
             if not fp.exists():
                 print(f"  {y}: no {did}, physics channels {vs} left out"); continue
-            p = xr.open_dataset(fp, chunks={"time": 50})
-            if "depth" in p.dims:
-                p = p.isel(depth=0, drop=True)
-            p = p.rename(latitude="lat", longitude="lon").reindex(time=times)
-            for v in vs:
-                ds[v] = p[v].interp(lat=ds.lat, lon=ds.lon, method="linear").astype("float32")
+            for v, da in phys_on_grid(fp, vs, ds.lat, ds.lon, times).items():
+                ds[v] = da
         ds["ocean"] = ds["chl_l4"].notnull().any("time")
         tmp = out.with_suffix(".zarr.part")
         if tmp.exists():
@@ -161,7 +180,7 @@ def arrange(a):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    d = sub.add_parser("download"); d.add_argument("--basin", choices=BASINS, required=True); d.add_argument("--what", nargs="+", choices=["chl", "phys"], default=["chl", "phys"])
+    d = sub.add_parser("download"); d.add_argument("--basin", choices=BASINS, required=True); d.add_argument("--what", nargs="+", choices=["chl", "phys", "extra"], default=["chl", "phys"])
     d.add_argument("--start", default="1997-09-01"); d.add_argument("--end", default="2024-12-31")
     d.add_argument("--skip-arranged", type=int, default=0, metavar="COARSEN", help="skip years whose <basin>_<COARSEN>km/<year>.zarr exists"); d.set_defaults(fn=download)
     r = sub.add_parser("arrange"); r.add_argument("--basin", choices=BASINS, required=True); r.add_argument("--coarsen", type=int, default=2)

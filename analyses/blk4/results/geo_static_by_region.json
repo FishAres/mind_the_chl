@@ -1,0 +1,61 @@
+{
+ "n_days": 182,
+ "by_region": {
+  "NW shelf": {
+   "n_px": 154519,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.21377106041653807,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.21220150972144042,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.21314696106696965,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.21419954364085086
+  },
+  "Western open sea": {
+   "n_px": 283566,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.11922725849055879,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.12067615104874196,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.11674029343441995,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.11691833027497045
+  },
+  "Eastern open sea": {
+   "n_px": 458430,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.11957301025072985,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.11902452506439913,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.11865157524113817,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.11676082831356964
+  },
+  "Anatolian shelf": {
+   "n_px": 32553,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.2162115486978657,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.21648464366915257,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.21541139877315255,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.2119390701844362
+  },
+  "Crimea/Kerch/Caucasus shelf": {
+   "n_px": 21784,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.19081779065085092,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.1840728272493351,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.18822276041665392,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.18927159396922852
+  },
+  "Azov Sea + Kerch strait": {
+   "n_px": 86163,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.287072462214227,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.2811303029223063,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.28235300767190213,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.27969616296799255
+  },
+  "Marmara/Bosporus corner": {
+   "n_px": 25307,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.3262132438142919,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.33314337835288527,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.329796826094287,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.3276269245858531
+  },
+  "all": {
+   "n_px": 1062322,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep": 0.15611269913844522,
+   "blk4_t3d_c4_gdl100_lam0_b16_50ep_geo": 0.1555876545859352,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep": 0.15458529270607954,
+   "blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo": 0.1536179134720241
+  }
+ }
+}

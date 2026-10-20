@@ -10,7 +10,7 @@ from pathlib import Path
 from .runs import MODELS, CATEGORIES
 from .archive_runs import HIST, val_test, settings
 
-STORE = {"io": "Indian Ocean", "blk": "Black Sea 2 km", "blk4": "Black Sea 4 km"}
+STORE = {"io": "Indian Ocean", "blk": "Black Sea 2 km", "blk4": "Black Sea 4 km", "io_up": "Indian Ocean, 2024 hackweek protocol"}
 
 
 def _row(cat, run, where):
@@ -18,7 +18,7 @@ def _row(cat, run, where):
     mp, hp = run / "metrics.json", run / "history.json"
     m = json.load(open(mp)) if mp.exists() else None
     h = json.load(open(hp)) if hp.exists() else {}
-    if cat == "ude":                                         # daily UDE: val MAE averaged over forecast leads
+    if cat in ("ude", "tracer"):                                      # daily UDE: val MAE averaged over forecast leads
         v, t = (m or {}).get("best_val_mae_mean_leads"), None
     else:
         v, t, _, _ = val_test(cat, m, c) if m else (None, None, None, None)
@@ -30,7 +30,7 @@ def _row(cat, run, where):
     if where == "live" and (run / "model.pt").exists():
         status += ", weights"
     region = STORE.get(c.get("store", "io"), c.get("store"))
-    return dict(cat=cat, run=run.name, date=date, region=region, settings=settings(cat, c) if cat != "ude" else "", ep=ep, val=v, test=t, status=status)
+    return dict(cat=cat, run=run.name, date=date, region=region, settings=settings(cat, c) if cat not in ("ude", "tracer") else "", ep=ep, val=v, test=t, status=status)
 
 
 def collect():

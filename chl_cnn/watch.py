@@ -26,6 +26,10 @@ def draw_runs(run_dirs, axes=None, title_suffix=""):
     rows, lo, hi = [], [], []
     for i, p in enumerate(run_dirs):
         h = json.load(open(p / "history.json")); name = p.name
+        if "val" not in h:                        # tracer runs (train_tracer.py) log val_mean_lead (mean over leads, own pixel set)
+            h = dict(h, val=h.get("val_mean_lead", []))
+        if not h["val"]:
+            print(f"skip {category_of(p)}/{name}: no validation epochs logged yet"); continue
         done = (p / "metrics.json").exists()
         col = OKABE_ITO[i % len(OKABE_ITO)]; ls = ["-", "--", ":"][(i // len(OKABE_ITO)) % 3]
         ep = range(1, len(h["val"]) + 1)

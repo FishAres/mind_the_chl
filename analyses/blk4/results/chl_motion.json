@@ -1,0 +1,1677 @@
+{
+ "assumptions": [
+  "- Store ~/mind_the_chl_gap/data/blk4_store_2014_2024 (4 km, lat ascending -> +row = north, lon ascending -> +col =\n  east). ln CHL; CHL > 100 mg/m3 or <= 0 -> missing. u_curr/v_curr = CMEMS uo/vo (m/s); \"sla\" = CMEMS zos (m).",
+  "Tiles: non-overlapping T x T px (T = 16, 8), tile grid centred in the 197 x 275 grid (remainder rows/cols at the\n  edges dropped). Candidate tile: >= 80 % of its T*T pixels observed on day t AND on day t+k (land counts as missing).",
+  "For every integer shift (sy, sx) in [-12, 12]^2 the day-t tile is compared with day t+k at (row+sy, col+sx):\n  Pearson r of ln CHL over pixels observed in both (= mean removed per shift); r = NaN if the overlap < 50 % of T*T.\n  Search windows S = 6 (main) and S = 12 are taken from the same r map.",
+  "Peak = argmax r inside the window. Sub-pixel: 1-D parabolic fit along each axis through the peak and its two\n  neighbours (offset clipped to +-0.5; integer value kept if a neighbour is NaN).",
+  "Acceptance: peak r >= 0.6; peak not on the window edge; and either the best shift is (0, 0) or\n  atanh(r_peak) - atanh(r_0) > 1.96 * sqrt(2 / (n_eff - 3)) with n_eff = n_overlap_at_peak / 4 (pixels assumed\n  correlated over ~2 x 2 px). Non-zero best shift failing that test = \"ambiguous\" (rejected; sensitivity rows count\n  them as zero motion, or drop the significance test altogether).",
+  "d_cur: per-pixel u * 86400 / dx, v * 86400 / dy (grid_metrics, px/day), averaged over the tile (valid if >= 50 % of\n  tile pixels finite) and over days t..t+k, times k -> px over the lag. d_geo: same from geostrophic u_g = -g/f\n  d(zos)/dy, v_g = g/f d(zos)/dx, centred differences, pixels within 2 px of land (or of a non-finite zos) masked.",
+  "Shuffled control: d_cur of the same tile on a random day drawn uniformly from all days with |t' - t| > 1 and a valid\n  tile current (seed 0).",
+  "OLS with intercept per component (d_obs on d_ref); 95 % CI from 300 bootstrap resamples of days (tiles clustered by\n  day). Angles: d = (east, north) vector; angle difference wrapped to (-180, 180]; only tiles with |d_obs| >= 0.5 px\n  and |d_ref| >= 0.5 px. Mean resultant length R = |mean(exp(i dtheta))|.",
+  "Region of a tile = majority 4 km region label over its ocean pixels (2 km analyses/blk/regions.npy, 2x2 mode as\n  error_breakdown.regions_4km, no crop). Season by the month of day t."
+ ],
+ "self_test": {
+  "day": "2014-08-14",
+  "imposed_rows_north": 2,
+  "imposed_cols_east": -3,
+  "n_tiles": 60,
+  "recovered": {
+   "2,-3": 60
+  }
+ },
+ "configs": {
+  "lag1_T16_S6": {
+   "candidates": 57428,
+   "no_valid_r": 0,
+   "peak_below_0p6": 7804,
+   "edge_hits": 2487,
+   "ambiguous": 29027,
+   "accepted": 18110,
+   "accepted_days": 2296,
+   "accepted_with_cur": 16861,
+   "accepted_with_geo": 16861,
+   "zero_shift_frac": 0.482,
+   "zero_shift_frac_all_peak_ge_0p6": 0.176,
+   "frac_cur_lt_0p5px": 0.057,
+   "abs_d_pctl_10_25_50_75_90": {
+    "obs": [
+     0.19,
+     0.33,
+     1.13,
+     2.69,
+     3.91
+    ],
+    "cur": [
+     0.68,
+     1.16,
+     1.88,
+     2.9,
+     3.9
+    ],
+    "geo": [
+     0.37,
+     0.72,
+     1.4,
+     2.35,
+     3.27
+    ],
+    "obs_on_cur_tiles": [
+     0.21,
+     0.36,
+     1.43,
+     2.79,
+     3.99
+    ]
+   },
+   "overall": {
+    "cur": {
+     "east": {
+      "slope": 0.573,
+      "ci95": [
+       0.555,
+       0.588
+      ],
+      "intercept": 0.281,
+      "r2": 0.379,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "north": {
+      "slope": 0.512,
+      "ci95": [
+       0.495,
+       0.533
+      ],
+      "intercept": 0.134,
+      "r2": 0.235,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "angle": {
+      "R": 0.653,
+      "mean_deg": -2.6,
+      "frac_within_45": 0.677,
+      "n": 9888
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.735,
+      "ci95": [
+       0.714,
+       0.755
+      ],
+      "intercept": -0.028,
+      "r2": 0.431,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "north": {
+      "slope": 0.586,
+      "ci95": [
+       0.565,
+       0.608
+      ],
+      "intercept": 0.138,
+      "r2": 0.219,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "angle": {
+      "R": 0.67,
+      "mean_deg": 10.9,
+      "frac_within_45": 0.7,
+      "n": 9354
+     }
+    },
+    "shuffled_cur": {
+     "east": {
+      "slope": 0.363,
+      "ci95": [
+       0.35,
+       0.378
+      ],
+      "intercept": 0.018,
+      "r2": 0.178,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "north": {
+      "slope": 0.226,
+      "ci95": [
+       0.211,
+       0.242
+      ],
+      "intercept": 0.108,
+      "r2": 0.062,
+      "n": 16861,
+      "n_days": 2249
+     },
+     "angle": {
+      "R": 0.422,
+      "mean_deg": 11.3,
+      "frac_within_45": 0.493,
+      "n": 9895
+     }
+    }
+   },
+   "sensitivity_ambiguous_as_zero": {
+    "cur": {
+     "east": {
+      "slope": 0.21,
+      "ci95": [
+       0.202,
+       0.218
+      ],
+      "intercept": 0.102,
+      "r2": 0.138,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "north": {
+      "slope": 0.187,
+      "ci95": [
+       0.179,
+       0.195
+      ],
+      "intercept": 0.044,
+      "r2": 0.086,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "angle": {
+      "R": 0.653,
+      "mean_deg": -2.6,
+      "frac_within_45": 0.677,
+      "n": 9888
+     }
+    },
+    "n_accepted": 47137
+   },
+   "split_by_best_shift": {
+    "nonzero_shift": {
+     "cur": {
+      "east": {
+       "slope": 0.756,
+       "ci95": [
+        0.737,
+        0.771
+       ],
+       "intercept": 0.402,
+       "r2": 0.496,
+       "n": 9366,
+       "n_days": 1870
+      },
+      "north": {
+       "slope": 0.692,
+       "ci95": [
+        0.669,
+        0.715
+       ],
+       "intercept": 0.17,
+       "r2": 0.315,
+       "n": 9366,
+       "n_days": 1870
+      },
+      "angle": {
+       "R": 0.687,
+       "mean_deg": -2.8,
+       "frac_within_45": 0.704,
+       "n": 9082
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.916,
+       "ci95": [
+        0.895,
+        0.934
+       ],
+       "intercept": -0.061,
+       "r2": 0.537,
+       "n": 9366,
+       "n_days": 1870
+      },
+      "north": {
+       "slope": 0.764,
+       "ci95": [
+        0.738,
+        0.786
+       ],
+       "intercept": 0.182,
+       "r2": 0.285,
+       "n": 9366,
+       "n_days": 1870
+      },
+      "angle": {
+       "R": 0.704,
+       "mean_deg": 10.8,
+       "frac_within_45": 0.727,
+       "n": 8692
+      }
+     }
+    },
+    "zero_shift_abs_d_cur_pctl_10_50_90": [
+     0.53,
+     1.43,
+     2.98
+    ],
+    "nonzero_shift_abs_d_cur_pctl_10_50_90": [
+     0.93,
+     2.37,
+     4.31
+    ]
+   },
+   "sensitivity_no_significance_test": {
+    "cur": {
+     "east": {
+      "slope": 0.462,
+      "ci95": [
+       0.451,
+       0.472
+      ],
+      "intercept": 0.204,
+      "r2": 0.288,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "north": {
+      "slope": 0.405,
+      "ci95": [
+       0.395,
+       0.416
+      ],
+      "intercept": 0.094,
+      "r2": 0.161,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "angle": {
+      "R": 0.518,
+      "mean_deg": -2.9,
+      "frac_within_45": 0.586,
+      "n": 36711
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.587,
+      "ci95": [
+       0.575,
+       0.598
+      ],
+      "intercept": -0.034,
+      "r2": 0.318,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "north": {
+      "slope": 0.459,
+      "ci95": [
+       0.448,
+       0.471
+      ],
+      "intercept": 0.102,
+      "r2": 0.149,
+      "n": 45085,
+      "n_days": 2624
+     },
+     "angle": {
+      "R": 0.533,
+      "mean_deg": 8.6,
+      "frac_within_45": 0.602,
+      "n": 34395
+     }
+    },
+    "n_accepted": 47137,
+    "zero_shift_frac": 0.185,
+    "abs_d_obs_pctl_10_25_50_75_90": [
+     0.37,
+     0.79,
+     1.39,
+     2.39,
+     3.67
+    ]
+   },
+   "by_region": {
+    "NW shelf": {
+     "cur": {
+      "east": {
+       "slope": 0.298,
+       "ci95": [
+        0.266,
+        0.332
+       ],
+       "intercept": 0.124,
+       "r2": 0.199,
+       "n": 3067,
+       "n_days": 1255
+      },
+      "north": {
+       "slope": 0.156,
+       "ci95": [
+        0.121,
+        0.194
+       ],
+       "intercept": -0.077,
+       "r2": 0.035,
+       "n": 3067,
+       "n_days": 1255
+      },
+      "angle": {
+       "R": 0.567,
+       "mean_deg": -14.5,
+       "frac_within_45": 0.576,
+       "n": 817
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.207,
+       "ci95": [
+        0.13,
+        0.276
+       ],
+       "intercept": 0.03,
+       "r2": 0.017,
+       "n": 3067,
+       "n_days": 1255
+      },
+      "north": {
+       "slope": 0.157,
+       "ci95": [
+        0.084,
+        0.233
+       ],
+       "intercept": -0.106,
+       "r2": 0.011,
+       "n": 3067,
+       "n_days": 1255
+      },
+      "angle": {
+       "R": 0.299,
+       "mean_deg": -20.6,
+       "frac_within_45": 0.425,
+       "n": 511
+      }
+     }
+    },
+    "Western open sea": {
+     "cur": {
+      "east": {
+       "slope": 0.558,
+       "ci95": [
+        0.53,
+        0.586
+       ],
+       "intercept": 0.472,
+       "r2": 0.345,
+       "n": 6884,
+       "n_days": 1590
+      },
+      "north": {
+       "slope": 0.553,
+       "ci95": [
+        0.523,
+        0.577
+       ],
+       "intercept": 0.011,
+       "r2": 0.265,
+       "n": 6884,
+       "n_days": 1590
+      },
+      "angle": {
+       "R": 0.625,
+       "mean_deg": -1.7,
+       "frac_within_45": 0.655,
+       "n": 4362
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.702,
+       "ci95": [
+        0.674,
+        0.729
+       ],
+       "intercept": 0.094,
+       "r2": 0.415,
+       "n": 6884,
+       "n_days": 1590
+      },
+      "north": {
+       "slope": 0.633,
+       "ci95": [
+        0.595,
+        0.665
+       ],
+       "intercept": 0.118,
+       "r2": 0.231,
+       "n": 6884,
+       "n_days": 1590
+      },
+      "angle": {
+       "R": 0.653,
+       "mean_deg": 11.9,
+       "frac_within_45": 0.69,
+       "n": 4223
+      }
+     }
+    },
+    "Eastern open sea": {
+     "cur": {
+      "east": {
+       "slope": 0.642,
+       "ci95": [
+        0.619,
+        0.666
+       ],
+       "intercept": 0.166,
+       "r2": 0.449,
+       "n": 6910,
+       "n_days": 1649
+      },
+      "north": {
+       "slope": 0.482,
+       "ci95": [
+        0.453,
+        0.514
+       ],
+       "intercept": 0.31,
+       "r2": 0.206,
+       "n": 6910,
+       "n_days": 1649
+      },
+      "angle": {
+       "R": 0.696,
+       "mean_deg": -1.6,
+       "frac_within_45": 0.715,
+       "n": 4709
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.784,
+       "ci95": [
+        0.758,
+        0.808
+       ],
+       "intercept": -0.151,
+       "r2": 0.49,
+       "n": 6910,
+       "n_days": 1649
+      },
+      "north": {
+       "slope": 0.53,
+       "ci95": [
+        0.503,
+        0.559
+       ],
+       "intercept": 0.264,
+       "r2": 0.189,
+       "n": 6910,
+       "n_days": 1649
+      },
+      "angle": {
+       "R": 0.732,
+       "mean_deg": 11.4,
+       "frac_within_45": 0.74,
+       "n": 4620
+      }
+     }
+    },
+    "Anatolian shelf": {
+     "cur": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     },
+     "geo": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     }
+    },
+    "Crimea/Kerch/Caucasus shelf": {
+     "cur": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     },
+     "geo": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     }
+    },
+    "Azov Sea + Kerch strait": {
+     "cur": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     },
+     "geo": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     }
+    },
+    "Marmara/Bosporus corner": {
+     "cur": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     },
+     "geo": {
+      "east": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "north": {
+       "n": 0,
+       "flag": "n<5"
+      },
+      "angle": {
+       "n": 0,
+       "flag": "n<5"
+      }
+     }
+    }
+   },
+   "by_season": {
+    "DJF": {
+     "cur": {
+      "east": {
+       "slope": 0.359,
+       "ci95": [
+        0.26,
+        0.448
+       ],
+       "intercept": 0.0,
+       "r2": 0.149,
+       "n": 538,
+       "n_days": 208
+      },
+      "north": {
+       "slope": 0.33,
+       "ci95": [
+        0.227,
+        0.433
+       ],
+       "intercept": 0.014,
+       "r2": 0.091,
+       "n": 538,
+       "n_days": 208
+      },
+      "angle": {
+       "R": 0.544,
+       "mean_deg": -0.1,
+       "frac_within_45": 0.598,
+       "n": 251
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.474,
+       "ci95": [
+        0.359,
+        0.574
+       ],
+       "intercept": 0.089,
+       "r2": 0.185,
+       "n": 538,
+       "n_days": 208
+      },
+      "north": {
+       "slope": 0.435,
+       "ci95": [
+        0.276,
+        0.583
+       ],
+       "intercept": 0.115,
+       "r2": 0.092,
+       "n": 538,
+       "n_days": 208
+      },
+      "angle": {
+       "R": 0.57,
+       "mean_deg": 19.7,
+       "frac_within_45": 0.611,
+       "n": 239
+      }
+     }
+    },
+    "MAM": {
+     "cur": {
+      "east": {
+       "slope": 0.601,
+       "ci95": [
+        0.568,
+        0.633
+       ],
+       "intercept": 0.219,
+       "r2": 0.383,
+       "n": 3934,
+       "n_days": 619
+      },
+      "north": {
+       "slope": 0.526,
+       "ci95": [
+        0.479,
+        0.573
+       ],
+       "intercept": 0.037,
+       "r2": 0.231,
+       "n": 3934,
+       "n_days": 619
+      },
+      "angle": {
+       "R": 0.676,
+       "mean_deg": -2.2,
+       "frac_within_45": 0.691,
+       "n": 2207
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.736,
+       "ci95": [
+        0.701,
+        0.774
+       ],
+       "intercept": 0.098,
+       "r2": 0.441,
+       "n": 3934,
+       "n_days": 619
+      },
+      "north": {
+       "slope": 0.608,
+       "ci95": [
+        0.551,
+        0.655
+       ],
+       "intercept": 0.117,
+       "r2": 0.212,
+       "n": 3934,
+       "n_days": 619
+      },
+      "angle": {
+       "R": 0.675,
+       "mean_deg": 13.5,
+       "frac_within_45": 0.701,
+       "n": 2093
+      }
+     }
+    },
+    "JJA": {
+     "cur": {
+      "east": {
+       "slope": 0.612,
+       "ci95": [
+        0.592,
+        0.633
+       ],
+       "intercept": 0.367,
+       "r2": 0.409,
+       "n": 9571,
+       "n_days": 902
+      },
+      "north": {
+       "slope": 0.555,
+       "ci95": [
+        0.532,
+        0.58
+       ],
+       "intercept": 0.201,
+       "r2": 0.274,
+       "n": 9571,
+       "n_days": 902
+      },
+      "angle": {
+       "R": 0.656,
+       "mean_deg": -2.9,
+       "frac_within_45": 0.678,
+       "n": 6017
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.776,
+       "ci95": [
+        0.75,
+        0.8
+       ],
+       "intercept": -0.077,
+       "r2": 0.465,
+       "n": 9571,
+       "n_days": 902
+      },
+      "north": {
+       "slope": 0.614,
+       "ci95": [
+        0.58,
+        0.641
+       ],
+       "intercept": 0.141,
+       "r2": 0.246,
+       "n": 9571,
+       "n_days": 902
+      },
+      "angle": {
+       "R": 0.682,
+       "mean_deg": 9.7,
+       "frac_within_45": 0.713,
+       "n": 5642
+      }
+     }
+    },
+    "SON": {
+     "cur": {
+      "east": {
+       "slope": 0.506,
+       "ci95": [
+        0.463,
+        0.548
+       ],
+       "intercept": 0.24,
+       "r2": 0.332,
+       "n": 2818,
+       "n_days": 520
+      },
+      "north": {
+       "slope": 0.451,
+       "ci95": [
+        0.394,
+        0.5
+       ],
+       "intercept": 0.125,
+       "r2": 0.183,
+       "n": 2818,
+       "n_days": 520
+      },
+      "angle": {
+       "R": 0.622,
+       "mean_deg": -2.1,
+       "frac_within_45": 0.669,
+       "n": 1413
+      }
+     },
+     "geo": {
+      "east": {
+       "slope": 0.648,
+       "ci95": [
+        0.596,
+        0.692
+       ],
+       "intercept": -0.036,
+       "r2": 0.366,
+       "n": 2818,
+       "n_days": 520
+      },
+      "north": {
+       "slope": 0.51,
+       "ci95": [
+        0.446,
+        0.565
+       ],
+       "intercept": 0.177,
+       "r2": 0.182,
+       "n": 2818,
+       "n_days": 520
+      },
+      "angle": {
+       "R": 0.635,
+       "mean_deg": 10.7,
+       "frac_within_45": 0.662,
+       "n": 1380
+      }
+     }
+    }
+   },
+   "cur_tercile_edges_px": [
+    1.39,
+    2.5
+   ],
+   "geo_tercile_edges_px": [
+    0.92,
+    2.0
+   ],
+   "by_cur_tercile": {
+    "T1": {
+     "cur": {
+      "east": {
+       "slope": 0.571,
+       "ci95": [
+        0.519,
+        0.624
+       ],
+       "intercept": 0.235,
+       "r2": 0.099,
+       "n": 5620,
+       "n_days": 1631
+      },
+      "north": {
+       "slope": 0.397,
+       "ci95": [
+        0.346,
+        0.437
+       ],
+       "intercept": 0.055,
+       "r2": 0.055,
+       "n": 5620,
+       "n_days": 1631
+      },
+      "angle": {
+       "R": 0.413,
+       "mean_deg": -6.6,
+       "frac_within_45": 0.479,
+       "n": 2058
+      }
+     }
+    },
+    "T2": {
+     "cur": {
+      "east": {
+       "slope": 0.63,
+       "ci95": [
+        0.597,
+        0.659
+       ],
+       "intercept": 0.351,
+       "r2": 0.291,
+       "n": 5620,
+       "n_days": 1727
+      },
+      "north": {
+       "slope": 0.513,
+       "ci95": [
+        0.48,
+        0.547
+       ],
+       "intercept": 0.13,
+       "r2": 0.197,
+       "n": 5620,
+       "n_days": 1727
+      },
+      "angle": {
+       "R": 0.637,
+       "mean_deg": -4.7,
+       "frac_within_45": 0.645,
+       "n": 3302
+      }
+     }
+    },
+    "T3": {
+     "cur": {
+      "east": {
+       "slope": 0.559,
+       "ci95": [
+        0.543,
+        0.581
+       ],
+       "intercept": 0.261,
+       "r2": 0.467,
+       "n": 5621,
+       "n_days": 1640
+      },
+      "north": {
+       "slope": 0.528,
+       "ci95": [
+        0.503,
+        0.555
+       ],
+       "intercept": 0.211,
+       "r2": 0.331,
+       "n": 5621,
+       "n_days": 1640
+      },
+      "angle": {
+       "R": 0.775,
+       "mean_deg": -0.3,
+       "frac_within_45": 0.791,
+       "n": 4528
+      }
+     }
+    }
+   },
+   "by_geo_tercile": {
+    "T1": {
+     "geo": {
+      "east": {
+       "slope": 0.468,
+       "ci95": [
+        0.402,
+        0.534
+       ],
+       "intercept": -0.009,
+       "r2": 0.036,
+       "n": 5621,
+       "n_days": 1720
+      },
+      "north": {
+       "slope": 0.304,
+       "ci95": [
+        0.238,
+        0.381
+       ],
+       "intercept": 0.025,
+       "r2": 0.017,
+       "n": 5621,
+       "n_days": 1720
+      },
+      "angle": {
+       "R": 0.31,
+       "mean_deg": 11.7,
+       "frac_within_45": 0.427,
+       "n": 1217
+      }
+     }
+    },
+    "T2": {
+     "geo": {
+      "east": {
+       "slope": 0.804,
+       "ci95": [
+        0.766,
+        0.842
+       ],
+       "intercept": -0.093,
+       "r2": 0.307,
+       "n": 5620,
+       "n_days": 1676
+      },
+      "north": {
+       "slope": 0.51,
+       "ci95": [
+        0.472,
+        0.553
+       ],
+       "intercept": 0.148,
+       "r2": 0.115,
+       "n": 5620,
+       "n_days": 1676
+      },
+      "angle": {
+       "R": 0.614,
+       "mean_deg": 10.8,
+       "frac_within_45": 0.636,
+       "n": 3402
+      }
+     }
+    },
+    "T3": {
+     "geo": {
+      "east": {
+       "slope": 0.73,
+       "ci95": [
+        0.709,
+        0.749
+       ],
+       "intercept": 0.026,
+       "r2": 0.549,
+       "n": 5620,
+       "n_days": 1665
+      },
+      "north": {
+       "slope": 0.626,
+       "ci95": [
+        0.598,
+        0.65
+       ],
+       "intercept": 0.214,
+       "r2": 0.334,
+       "n": 5620,
+       "n_days": 1665
+      },
+      "angle": {
+       "R": 0.803,
+       "mean_deg": 10.9,
+       "frac_within_45": 0.816,
+       "n": 4735
+      }
+     }
+    }
+   }
+  },
+  "lag1_T16_S12": {
+   "candidates": 57428,
+   "no_valid_r": 0,
+   "peak_below_0p6": 6267,
+   "edge_hits": 2028,
+   "ambiguous": 29699,
+   "accepted": 19434,
+   "accepted_days": 2382,
+   "accepted_with_cur": 18155,
+   "accepted_with_geo": 18155,
+   "zero_shift_frac": 0.437,
+   "zero_shift_frac_all_peak_ge_0p6": 0.166,
+   "frac_cur_lt_0p5px": 0.055,
+   "abs_d_pctl_10_25_50_75_90": {
+    "obs": [
+     0.21,
+     0.36,
+     1.57,
+     3.15,
+     5.83
+    ],
+    "cur": [
+     0.68,
+     1.18,
+     1.92,
+     2.95,
+     3.97
+    ],
+    "geo": [
+     0.38,
+     0.74,
+     1.44,
+     2.42,
+     3.33
+    ],
+    "obs_on_cur_tiles": [
+     0.22,
+     0.38,
+     1.77,
+     3.26,
+     6.05
+    ]
+   },
+   "overall": {
+    "cur": {
+     "east": {
+      "slope": 0.551,
+      "ci95": [
+       0.53,
+       0.573
+      ],
+      "intercept": 0.263,
+      "r2": 0.151,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "north": {
+      "slope": 0.459,
+      "ci95": [
+       0.43,
+       0.486
+      ],
+      "intercept": 0.12,
+      "r2": 0.061,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "angle": {
+      "R": 0.575,
+      "mean_deg": -2.3,
+      "frac_within_45": 0.631,
+      "n": 11311
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.704,
+      "ci95": [
+       0.677,
+       0.734
+      ],
+      "intercept": -0.03,
+      "r2": 0.171,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "north": {
+      "slope": 0.513,
+      "ci95": [
+       0.476,
+       0.551
+      ],
+      "intercept": 0.125,
+      "r2": 0.054,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "angle": {
+      "R": 0.589,
+      "mean_deg": 10.4,
+      "frac_within_45": 0.652,
+      "n": 10724
+     }
+    },
+    "shuffled_cur": {
+     "east": {
+      "slope": 0.358,
+      "ci95": [
+       0.339,
+       0.378
+      ],
+      "intercept": 0.016,
+      "r2": 0.072,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "north": {
+      "slope": 0.215,
+      "ci95": [
+       0.192,
+       0.239
+      ],
+      "intercept": 0.109,
+      "r2": 0.017,
+      "n": 18155,
+      "n_days": 2342
+     },
+     "angle": {
+      "R": 0.372,
+      "mean_deg": 9.9,
+      "frac_within_45": 0.466,
+      "n": 11312
+     }
+    }
+   }
+  },
+  "lag1_T8_S6": {
+   "candidates": 291154,
+   "no_valid_r": 0,
+   "peak_below_0p6": 33729,
+   "edge_hits": 30068,
+   "ambiguous": 165961,
+   "accepted": 61396,
+   "accepted_days": 2892,
+   "accepted_with_cur": 54903,
+   "accepted_with_geo": 54543,
+   "zero_shift_frac": 0.503,
+   "zero_shift_frac_all_peak_ge_0p6": 0.12,
+   "frac_cur_lt_0p5px": 0.052,
+   "abs_d_pctl_10_25_50_75_90": {
+    "obs": [
+     0.18,
+     0.32,
+     0.64,
+     3.27,
+     4.73
+    ],
+    "cur": [
+     0.72,
+     1.23,
+     2.08,
+     3.26,
+     4.57
+    ],
+    "geo": [
+     0.45,
+     0.86,
+     1.64,
+     2.8,
+     4.04
+    ],
+    "obs_on_cur_tiles": [
+     0.19,
+     0.34,
+     1.75,
+     3.44,
+     4.85
+    ]
+   },
+   "overall": {
+    "cur": {
+     "east": {
+      "slope": 0.434,
+      "ci95": [
+       0.422,
+       0.446
+      ],
+      "intercept": 0.136,
+      "r2": 0.218,
+      "n": 54903,
+      "n_days": 2850
+     },
+     "north": {
+      "slope": 0.342,
+      "ci95": [
+       0.33,
+       0.353
+      ],
+      "intercept": 0.088,
+      "r2": 0.101,
+      "n": 54903,
+      "n_days": 2850
+     },
+     "angle": {
+      "R": 0.504,
+      "mean_deg": -1.8,
+      "frac_within_45": 0.57,
+      "n": 31800
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.522,
+      "ci95": [
+       0.51,
+       0.534
+      ],
+      "intercept": -0.088,
+      "r2": 0.234,
+      "n": 54543,
+      "n_days": 2847
+     },
+     "north": {
+      "slope": 0.364,
+      "ci95": [
+       0.349,
+       0.376
+      ],
+      "intercept": 0.084,
+      "r2": 0.092,
+      "n": 54543,
+      "n_days": 2847
+     },
+     "angle": {
+      "R": 0.508,
+      "mean_deg": 10.0,
+      "frac_within_45": 0.572,
+      "n": 30773
+     }
+    },
+    "shuffled_cur": {
+     "east": {
+      "slope": 0.278,
+      "ci95": [
+       0.27,
+       0.287
+      ],
+      "intercept": -0.036,
+      "r2": 0.1,
+      "n": 54903,
+      "n_days": 2850
+     },
+     "north": {
+      "slope": 0.134,
+      "ci95": [
+       0.126,
+       0.143
+      ],
+      "intercept": 0.076,
+      "r2": 0.019,
+      "n": 54903,
+      "n_days": 2850
+     },
+     "angle": {
+      "R": 0.298,
+      "mean_deg": 9.2,
+      "frac_within_45": 0.421,
+      "n": 31740
+     }
+    }
+   }
+  },
+  "lag2_T16_S6": {
+   "candidates": 50412,
+   "no_valid_r": 0,
+   "peak_below_0p6": 11013,
+   "edge_hits": 5817,
+   "ambiguous": 21796,
+   "accepted": 11786,
+   "accepted_days": 2089,
+   "accepted_with_cur": 11260,
+   "accepted_with_geo": 11260,
+   "zero_shift_frac": 0.278,
+   "zero_shift_frac_all_peak_ge_0p6": 0.083,
+   "frac_cur_lt_0p5px": 0.015,
+   "abs_d_pctl_10_25_50_75_90": {
+    "obs": [
+     0.27,
+     0.51,
+     2.98,
+     4.32,
+     5.34
+    ],
+    "cur": [
+     1.38,
+     2.38,
+     3.89,
+     5.85,
+     7.73
+    ],
+    "geo": [
+     0.78,
+     1.54,
+     2.91,
+     4.7,
+     6.41
+    ],
+    "obs_on_cur_tiles": [
+     0.3,
+     1.07,
+     3.08,
+     4.37,
+     5.36
+    ]
+   },
+   "overall": {
+    "cur": {
+     "east": {
+      "slope": 0.372,
+      "ci95": [
+       0.358,
+       0.384
+      ],
+      "intercept": 0.212,
+      "r2": 0.3,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "north": {
+      "slope": 0.356,
+      "ci95": [
+       0.339,
+       0.372
+      ],
+      "intercept": 0.157,
+      "r2": 0.174,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "angle": {
+      "R": 0.562,
+      "mean_deg": -0.5,
+      "frac_within_45": 0.61,
+      "n": 8705
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.443,
+      "ci95": [
+       0.427,
+       0.46
+      ],
+      "intercept": -0.201,
+      "r2": 0.299,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "north": {
+      "slope": 0.356,
+      "ci95": [
+       0.335,
+       0.373
+      ],
+      "intercept": 0.109,
+      "r2": 0.13,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "angle": {
+      "R": 0.537,
+      "mean_deg": 11.7,
+      "frac_within_45": 0.592,
+      "n": 8510
+     }
+    },
+    "shuffled_cur": {
+     "east": {
+      "slope": 0.237,
+      "ci95": [
+       0.226,
+       0.248
+      ],
+      "intercept": -0.16,
+      "r2": 0.139,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "north": {
+      "slope": 0.143,
+      "ci95": [
+       0.129,
+       0.155
+      ],
+      "intercept": 0.077,
+      "r2": 0.036,
+      "n": 11260,
+      "n_days": 2063
+     },
+     "angle": {
+      "R": 0.331,
+      "mean_deg": 12.9,
+      "frac_within_45": 0.437,
+      "n": 8688
+     }
+    }
+   }
+  },
+  "lag2_T16_S12": {
+   "candidates": 50412,
+   "no_valid_r": 0,
+   "peak_below_0p6": 8612,
+   "edge_hits": 3196,
+   "ambiguous": 22810,
+   "accepted": 15794,
+   "accepted_days": 2282,
+   "accepted_with_cur": 15199,
+   "accepted_with_geo": 15199,
+   "zero_shift_frac": 0.196,
+   "zero_shift_frac_all_peak_ge_0p6": 0.074,
+   "frac_cur_lt_0p5px": 0.013,
+   "abs_d_pctl_10_25_50_75_90": {
+    "obs": [
+     0.34,
+     2.14,
+     4.06,
+     7.08,
+     10.32
+    ],
+    "cur": [
+     1.5,
+     2.56,
+     4.17,
+     6.19,
+     8.1
+    ],
+    "geo": [
+     0.88,
+     1.75,
+     3.29,
+     5.16,
+     6.84
+    ],
+    "obs_on_cur_tiles": [
+     0.36,
+     2.3,
+     4.17,
+     7.16,
+     10.35
+    ]
+   },
+   "overall": {
+    "cur": {
+     "east": {
+      "slope": 0.396,
+      "ci95": [
+       0.375,
+       0.416
+      ],
+      "intercept": 0.283,
+      "r2": 0.13,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "north": {
+      "slope": 0.345,
+      "ci95": [
+       0.316,
+       0.368
+      ],
+      "intercept": 0.159,
+      "r2": 0.059,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "angle": {
+      "R": 0.46,
+      "mean_deg": -1.6,
+      "frac_within_45": 0.562,
+      "n": 12765
+     }
+    },
+    "geo": {
+     "east": {
+      "slope": 0.475,
+      "ci95": [
+       0.452,
+       0.495
+      ],
+      "intercept": -0.146,
+      "r2": 0.135,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "north": {
+      "slope": 0.334,
+      "ci95": [
+       0.301,
+       0.361
+      ],
+      "intercept": 0.115,
+      "r2": 0.042,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "angle": {
+      "R": 0.444,
+      "mean_deg": 9.9,
+      "frac_within_45": 0.555,
+      "n": 12533
+     }
+    },
+    "shuffled_cur": {
+     "east": {
+      "slope": 0.282,
+      "ci95": [
+       0.266,
+       0.296
+      ],
+      "intercept": -0.071,
+      "r2": 0.07,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "north": {
+      "slope": 0.135,
+      "ci95": [
+       0.113,
+       0.158
+      ],
+      "intercept": 0.092,
+      "r2": 0.011,
+      "n": 15199,
+      "n_days": 2256
+     },
+     "angle": {
+      "R": 0.285,
+      "mean_deg": 9.3,
+      "frac_within_45": 0.426,
+      "n": 12742
+     }
+    }
+   }
+  }
+ },
+ "data_quality": {
+  "days": 3997,
+  "ocean_px": 23606,
+  "chl_nan_ocean": 51687284,
+  "chl_gt100_set_missing": 60815
+ },
+ "lag2_vs_lag1": {
+  "n_pairs": 5577,
+  "east": {
+   "slope": 1.282,
+   "ci95": [
+    1.22,
+    1.343
+   ],
+   "intercept": -0.021,
+   "r2": 0.39,
+   "n": 5577,
+   "n_days": 1407
+  },
+  "north": {
+   "slope": 1.117,
+   "ci95": [
+    1.048,
+    1.19
+   ],
+   "intercept": 0.09,
+   "r2": 0.271,
+   "n": 5577,
+   "n_days": 1407
+  },
+  "median_abs_lag1": 2.01,
+  "median_abs_lag2": 3.68
+ }
+}

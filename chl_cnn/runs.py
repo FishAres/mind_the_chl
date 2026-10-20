@@ -7,15 +7,17 @@ Layout (since 2026-10-03; runs trained before were moved here, nothing else chan
   models/pinn/unet/<run>   train_pinn.py runs with a U-Net (unet_*)
   models/pinn/deq/<run>    train_pinn.py runs with --model deq (deep equilibrium fill, deq.py)
   models/pinn/t3d/<run>    train_pinn.py runs with --model temporal3d (3D-conv stem over adjacent days, models.py)
+  models/pinn/upstream/<run>  train_pinn.py runs with --store io_up (2024 hackweek protocol, store_io_up.py; 2026-10-20)
   models/spatial/<run>     train_spatial.py runs (steady-state anisotropic diffusion, spatial_node.py)
   models/ude/<run>         train_ude.py runs (daily UDE: semi-Lagrangian transport + learned source, ude.py)
+  models/tracer/<run>      train_tracer.py runs (learned Lagrangian tracer, velocity terms; tracer.py)
 
 CATEGORIES maps a short category name to its folder; find_run() locates a run by name in any folder.
 """
 from pathlib import Path
 
 MODELS = Path(__file__).resolve().parents[1] / "models"
-CATEGORIES = {"cnn": MODELS / "cnn", "unet": MODELS / "unet", "pinn/cnn": MODELS / "pinn" / "cnn", "pinn/unet": MODELS / "pinn" / "unet", "pinn/deq": MODELS / "pinn" / "deq", "pinn/t3d": MODELS / "pinn" / "t3d", "spatial": MODELS / "spatial", "ude": MODELS / "ude"}
+CATEGORIES = {"cnn": MODELS / "cnn", "unet": MODELS / "unet", "pinn/cnn": MODELS / "pinn" / "cnn", "pinn/unet": MODELS / "pinn" / "unet", "pinn/deq": MODELS / "pinn" / "deq", "pinn/t3d": MODELS / "pinn" / "t3d", "pinn/upstream": MODELS / "pinn" / "upstream", "spatial": MODELS / "spatial", "ude": MODELS / "ude", "tracer": MODELS / "tracer"}
 
 
 def run_dir(name, trainer, model):

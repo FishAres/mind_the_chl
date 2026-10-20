@@ -1,0 +1,1183 @@
+{
+ "assumptions": "- Block matching (analyses/blk4/results/chl_motion_tiles.npz, chl_motion.build_table): lag 1, 16 px tiles, search +-6;\n  groups: \"zero\" = accepted with integer best shift (0, 0); \"moving\" = accepted, non-zero best shift (significant vs the\n  zero shift); \"ambiguous\" = peak r >= 0.6, not on edge, non-zero best shift NOT significant vs zero (rejected by\n  chl_motion; listed for reference).\n- Masked NCC (analyses/blk4/results/spectral_motion_patches.npz): lead 1, accepted patch-pairs (peak r >= 0.6, not on\n  edge); \"zero\" = integer peak (0, 0) (rint of the sub-pixel shift), \"moving\" = otherwise.\n- Covariates per tile / patch: region (majority label, chl_motion.regions), season (month of day t), distance to coast\n  (mean of -topo.npy over ocean px, km), depth (median of depth.npy over ocean px, m), cloud fraction (1 - observed share\n  of the tile / patch on day t and on day t+1, mean of the two; land counted as unobserved for patches, as the\n  estimators), |current| (reanalysis current over the lag, px/day: chl_motion tile current / spectral patch current).\n- Climatological pattern correlation: Pearson r over the px observed on day t inside the tile / patch between ln C(t)\n  and (i) the long-term per-pixel mean ln C of TRAIN days (2014-2024 minus 2017, 2019, 2021, 2023), (ii) the train-days\n  doy climatology at doy(t) (tracer_static.base_doy, sigma 15 d). Values of day t enter (i) / (ii) when t is a train\n  day (one of ~2,500 days per pixel); a val-years-only row is reported as a check.\n- Statistics: per group n, medians; zero share per covariate bin with n (bins with n < 5 flagged); r distributions.",
+ "data_quality": {
+  "ltm_nan_ocean_px": 70,
+  "doy_nan_ocean_px_any_bin": 178,
+  "dist_nan_ocean_px": 0,
+  "depth_nan_ocean_px": 0
+ },
+ "block_matching_lag1_T16_S6": {
+  "n_by_group": {
+   "zero": 8723,
+   "moving": 9387,
+   "ambiguous": 29027
+  },
+  "quartiles_by_group": {
+   "zero": {
+    "dist": [
+     39.33,
+     73.023,
+     122.106
+    ],
+    "depth": [
+     32.195,
+     1029.044,
+     2052.367
+    ],
+    "cloud": [
+     0.0,
+     0.014,
+     0.07
+    ],
+    "cur": [
+     0.894,
+     1.429,
+     2.129
+    ],
+    "r_ltm": [
+     0.076,
+     0.45,
+     0.743
+    ],
+    "r_doy": [
+     0.242,
+     0.567,
+     0.786
+    ]
+   },
+   "moving": {
+    "dist": [
+     56.722,
+     73.023,
+     104.708
+    ],
+    "depth": [
+     1252.618,
+     1784.275,
+     2052.367
+    ],
+    "cloud": [
+     0.0,
+     0.004,
+     0.041
+    ],
+    "cur": [
+     1.514,
+     2.365,
+     3.365
+    ],
+    "r_ltm": [
+     -0.012,
+     0.357,
+     0.659
+    ],
+    "r_doy": [
+     0.133,
+     0.488,
+     0.722
+    ]
+   },
+   "ambiguous": {
+    "dist": [
+     54.779,
+     87.358,
+     117.941
+    ],
+    "depth": [
+     1065.893,
+     1811.583,
+     2079.629
+    ],
+    "cloud": [
+     0.0,
+     0.012,
+     0.057
+    ],
+    "cur": [
+     1.228,
+     1.966,
+     2.89
+    ],
+    "r_ltm": [
+     -0.028,
+     0.353,
+     0.665
+    ],
+    "r_doy": [
+     0.152,
+     0.502,
+     0.733
+    ]
+   }
+  },
+  "nan_by_group": {
+   "zero": {
+    "dist": 0,
+    "depth": 0,
+    "cloud": 0,
+    "cur": 1228,
+    "r_ltm": 0,
+    "r_doy": 0
+   },
+   "moving": {
+    "dist": 0,
+    "depth": 0,
+    "cloud": 0,
+    "cur": 21,
+    "r_ltm": 0,
+    "r_doy": 0
+   },
+   "ambiguous": {
+    "dist": 0,
+    "depth": 0,
+    "cloud": 0,
+    "cur": 803,
+    "r_ltm": 0,
+    "r_doy": 0
+   }
+  },
+  "quartiles_by_group_val_years": {
+   "zero": {
+    "r_ltm": [
+     0.068,
+     0.427,
+     0.715
+    ],
+    "r_doy": [
+     0.111,
+     0.474,
+     0.739
+    ]
+   },
+   "moving": {
+    "r_ltm": [
+     -0.106,
+     0.26,
+     0.578
+    ],
+    "r_doy": [
+     -0.103,
+     0.327,
+     0.626
+    ]
+   },
+   "ambiguous": {
+    "r_ltm": [
+     -0.08,
+     0.321,
+     0.653
+    ],
+    "r_doy": [
+     -0.018,
+     0.381,
+     0.679
+    ]
+   }
+  },
+  "zero_share_by_region": {
+   "NW shelf": {
+    "zero_share": 0.788,
+    "n": 3067
+   },
+   "W open": {
+    "zero_share": 0.391,
+    "n": 6884
+   },
+   "E open": {
+    "zero_share": 0.345,
+    "n": 6910
+   },
+   "Anatolian": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "Crimea/Caucasus": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "Azov": {
+    "zero_share": 0.983,
+    "n": 1249
+   },
+   "Marmara": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   }
+  },
+  "zero_share_by_season": {
+   "DJF": {
+    "zero_share": 0.595,
+    "n": 558
+   },
+   "MAM": {
+    "zero_share": 0.51,
+    "n": 4250
+   },
+   "JJA": {
+    "zero_share": 0.433,
+    "n": 10208
+   },
+   "SON": {
+    "zero_share": 0.582,
+    "n": 3094
+   }
+  },
+  "zero_share_by_dist": {
+   "[0, 10)": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "[10, 25)": {
+    "zero_share": 0.984,
+    "n": 1449
+   },
+   "[25, 50)": {
+    "zero_share": 0.546,
+    "n": 3542
+   },
+   "[50, 100)": {
+    "zero_share": 0.305,
+    "n": 7035
+   },
+   "[100, 400)": {
+    "zero_share": 0.529,
+    "n": 6084
+   }
+  },
+  "zero_share_by_depth": {
+   "[0, 50)": {
+    "zero_share": 0.914,
+    "n": 3582
+   },
+   "[50, 200)": {
+    "zero_share": 0.504,
+    "n": 1896
+   },
+   "[200, 1000)": {
+    "zero_share": 0.426,
+    "n": 202
+   },
+   "[1000, 2000)": {
+    "zero_share": 0.212,
+    "n": 6118
+   },
+   "[2000, 3000)": {
+    "zero_share": 0.493,
+    "n": 6312
+   }
+  },
+  "zero_share_by_cloud": {
+   "[0, 0.05)": {
+    "zero_share": 0.444,
+    "n": 13169
+   },
+   "[0.05, 0.1)": {
+    "zero_share": 0.515,
+    "n": 3285
+   },
+   "[0.1, 0.2)": {
+    "zero_share": 0.717,
+    "n": 1656
+   },
+   "[0.2, 0.5)": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "[0.5, 1.01)": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   }
+  },
+  "zero_share_by_cur": {
+   "[0, 0.5)": {
+    "zero_share": 0.704,
+    "n": 961
+   },
+   "[0.5, 1)": {
+    "zero_share": 0.664,
+    "n": 2337
+   },
+   "[1, 2)": {
+    "zero_share": 0.542,
+    "n": 5752
+   },
+   "[2, 3)": {
+    "zero_share": 0.359,
+    "n": 3948
+   },
+   "[3, 5)": {
+    "zero_share": 0.196,
+    "n": 3312
+   },
+   "[5, 50)": {
+    "zero_share": 0.152,
+    "n": 551
+   }
+  },
+  "zero_share_by_r_ltm": {
+   "[-1, 0)": {
+    "zero_share": 0.429,
+    "n": 4220
+   },
+   "[0, 0.25)": {
+    "zero_share": 0.459,
+    "n": 2832
+   },
+   "[0.25, 0.5)": {
+    "zero_share": 0.465,
+    "n": 3399
+   },
+   "[0.5, 0.75)": {
+    "zero_share": 0.482,
+    "n": 4025
+   },
+   "[0.75, 1.01)": {
+    "zero_share": 0.575,
+    "n": 3634
+   }
+  },
+  "zero_share_by_r_doy": {
+   "[-1, 0)": {
+    "zero_share": 0.404,
+    "n": 2883
+   },
+   "[0, 0.25)": {
+    "zero_share": 0.456,
+    "n": 2309
+   },
+   "[0.25, 0.5)": {
+    "zero_share": 0.469,
+    "n": 3431
+   },
+   "[0.5, 0.75)": {
+    "zero_share": 0.47,
+    "n": 4894
+   },
+   "[0.75, 1.01)": {
+    "zero_share": 0.565,
+    "n": 4593
+   }
+  },
+  "median_r_ltm_zero_minus_moving_by_region": {
+   "NW shelf": {
+    "diff": 0.051,
+    "n_zero": 2416,
+    "n_moving": 651
+   },
+   "W open": {
+    "diff": -0.131,
+    "n_zero": 2695,
+    "n_moving": 4189
+   },
+   "E open": {
+    "diff": -0.06,
+    "n_zero": 2384,
+    "n_moving": 4526
+   },
+   "Azov": {
+    "diff": 0.107,
+    "n_zero": 1228,
+    "n_moving": 21
+   }
+  }
+ },
+ "ncc_lead1": {
+  "n_by_group": {
+   "zero": 18379,
+   "moving": 58660
+  },
+  "quartiles_by_group": {
+   "zero": {
+    "dist": [
+     34.276,
+     49.353,
+     99.436
+    ],
+    "depth": [
+     23.489,
+     296.273,
+     1964.781
+    ],
+    "cloud": [
+     0.091,
+     0.23,
+     0.335
+    ],
+    "cur": [
+     0.892,
+     1.433,
+     2.142
+    ],
+    "r_ltm": [
+     0.374,
+     0.74,
+     0.884
+    ],
+    "r_doy": [
+     0.521,
+     0.776,
+     0.9
+    ]
+   },
+   "moving": {
+    "dist": [
+     49.454,
+     74.806,
+     101.308
+    ],
+    "depth": [
+     640.281,
+     1789.454,
+     2079.541
+    ],
+    "cloud": [
+     0.046,
+     0.158,
+     0.287
+    ],
+    "cur": [
+     1.186,
+     1.907,
+     2.824
+    ],
+    "r_ltm": [
+     0.197,
+     0.599,
+     0.815
+    ],
+    "r_doy": [
+     0.377,
+     0.677,
+     0.838
+    ]
+   }
+  },
+  "nan_by_group": {
+   "zero": {
+    "dist": 0,
+    "depth": 0,
+    "cloud": 0,
+    "cur": 3716,
+    "r_ltm": 0,
+    "r_doy": 0
+   },
+   "moving": {
+    "dist": 0,
+    "depth": 0,
+    "cloud": 0,
+    "cur": 2333,
+    "r_ltm": 0,
+    "r_doy": 0
+   }
+  },
+  "quartiles_by_group_val_years": {
+   "zero": {
+    "r_ltm": [
+     0.324,
+     0.716,
+     0.866
+    ],
+    "r_doy": [
+     0.399,
+     0.729,
+     0.882
+    ]
+   },
+   "moving": {
+    "r_ltm": [
+     0.132,
+     0.559,
+     0.805
+    ],
+    "r_doy": [
+     0.151,
+     0.586,
+     0.813
+    ]
+   }
+  },
+  "zero_share_by_region": {
+   "NW shelf": {
+    "zero_share": 0.384,
+    "n": 11739
+   },
+   "W open": {
+    "zero_share": 0.165,
+    "n": 28115
+   },
+   "E open": {
+    "zero_share": 0.177,
+    "n": 31213
+   },
+   "Anatolian": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "Crimea/Caucasus": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "Azov": {
+    "zero_share": 0.633,
+    "n": 5694
+   },
+   "Marmara": {
+    "zero_share": 0.335,
+    "n": 278
+   }
+  },
+  "zero_share_by_season": {
+   "DJF": {
+    "zero_share": 0.273,
+    "n": 3251
+   },
+   "MAM": {
+    "zero_share": 0.249,
+    "n": 17811
+   },
+   "JJA": {
+    "zero_share": 0.222,
+    "n": 40384
+   },
+   "SON": {
+    "zero_share": 0.261,
+    "n": 15593
+   }
+  },
+  "zero_share_by_dist": {
+   "[0, 10)": {
+    "zero_share": null,
+    "n": 0,
+    "flag": "n<5"
+   },
+   "[10, 25)": {
+    "zero_share": 0.638,
+    "n": 2677
+   },
+   "[25, 50)": {
+    "zero_share": 0.363,
+    "n": 21665
+   },
+   "[50, 100)": {
+    "zero_share": 0.14,
+    "n": 31294
+   },
+   "[100, 400)": {
+    "zero_share": 0.208,
+    "n": 21403
+   }
+  },
+  "zero_share_by_depth": {
+   "[0, 50)": {
+    "zero_share": 0.518,
+    "n": 12362
+   },
+   "[50, 200)": {
+    "zero_share": 0.288,
+    "n": 7350
+   },
+   "[200, 1000)": {
+    "zero_share": 0.238,
+    "n": 7175
+   },
+   "[1000, 2000)": {
+    "zero_share": 0.154,
+    "n": 25417
+   },
+   "[2000, 3000)": {
+    "zero_share": 0.171,
+    "n": 24735
+   }
+  },
+  "zero_share_by_cloud": {
+   "[0, 0.05)": {
+    "zero_share": 0.18,
+    "n": 18520
+   },
+   "[0.05, 0.1)": {
+    "zero_share": 0.188,
+    "n": 8659
+   },
+   "[0.1, 0.2)": {
+    "zero_share": 0.2,
+    "n": 14579
+   },
+   "[0.2, 0.5)": {
+    "zero_share": 0.298,
+    "n": 35275
+   },
+   "[0.5, 1.01)": {
+    "zero_share": 0.167,
+    "n": 6
+   }
+  },
+  "zero_share_by_cur": {
+   "[0, 0.5)": {
+    "zero_share": 0.31,
+    "n": 4307
+   },
+   "[0.5, 1)": {
+    "zero_share": 0.288,
+    "n": 10689
+   },
+   "[1, 2)": {
+    "zero_share": 0.237,
+    "n": 25231
+   },
+   "[2, 3)": {
+    "zero_share": 0.167,
+    "n": 17268
+   },
+   "[3, 5)": {
+    "zero_share": 0.105,
+    "n": 11856
+   },
+   "[5, 50)": {
+    "zero_share": 0.098,
+    "n": 1639
+   }
+  },
+  "zero_share_by_r_ltm": {
+   "[-1, 0)": {
+    "zero_share": 0.17,
+    "n": 10474
+   },
+   "[0, 0.25)": {
+    "zero_share": 0.186,
+    "n": 9524
+   },
+   "[0.25, 0.5)": {
+    "zero_share": 0.199,
+    "n": 10957
+   },
+   "[0.5, 0.75)": {
+    "zero_share": 0.22,
+    "n": 16733
+   },
+   "[0.75, 1.01)": {
+    "zero_share": 0.305,
+    "n": 29351
+   }
+  },
+  "zero_share_by_r_doy": {
+   "[-1, 0)": {
+    "zero_share": 0.152,
+    "n": 6204
+   },
+   "[0, 0.25)": {
+    "zero_share": 0.191,
+    "n": 6655
+   },
+   "[0.25, 0.5)": {
+    "zero_share": 0.194,
+    "n": 11047
+   },
+   "[0.5, 0.75)": {
+    "zero_share": 0.214,
+    "n": 19718
+   },
+   "[0.75, 1.01)": {
+    "zero_share": 0.293,
+    "n": 33415
+   }
+  },
+  "median_r_ltm_zero_minus_moving_by_region": {
+   "NW shelf": {
+    "diff": 0.028,
+    "n_zero": 4508,
+    "n_moving": 7231
+   },
+   "W open": {
+    "diff": -0.026,
+    "n_zero": 4635,
+    "n_moving": 23480
+   },
+   "E open": {
+    "diff": 0.08,
+    "n_zero": 5537,
+    "n_moving": 25676
+   },
+   "Azov": {
+    "diff": 0.01,
+    "n_zero": 3606,
+    "n_moving": 2088
+   },
+   "Marmara": {
+    "diff": 0.017,
+    "n_zero": 93,
+    "n_moving": 185
+   }
+  }
+ },
+ "tile_map": {
+  "zero_share": [
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    0.437,
+    0.133,
+    0.066,
+    0.224,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.426,
+    0.183,
+    0.25,
+    0.067,
+    0.232,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    0.138,
+    0.699,
+    0.622,
+    0.581,
+    0.196,
+    0.106,
+    0.094,
+    0.301,
+    0.109,
+    0.483,
+    0.738,
+    0.708,
+    0.223,
+    0.216,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    0.239,
+    0.423,
+    0.747,
+    0.715,
+    0.664,
+    0.606,
+    0.467,
+    0.313,
+    0.566,
+    0.719,
+    0.703,
+    0.527,
+    0.141,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    0.336,
+    0.236,
+    0.393,
+    0.337,
+    0.257,
+    0.457,
+    0.507,
+    0.529,
+    0.564,
+    0.299,
+    0.163,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    0.436,
+    0.479,
+    0.288,
+    0.259,
+    0.317,
+    0.147,
+    0.103,
+    0.107,
+    0.087,
+    0.306,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.564,
+    0.686,
+    0.754,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.848,
+    0.818,
+    0.975,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.994,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.986,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    0.977,
+    0.98,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ],
+   [
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN,
+    NaN
+   ]
+  ],
+  "n": [
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    190,
+    248,
+    316,
+    246,
+    0,
+    0,
+    0,
+    0,
+    0,
+    202,
+    186,
+    148,
+    163,
+    112,
+    0
+   ],
+   [
+    0,
+    0,
+    305,
+    249,
+    241,
+    246,
+    271,
+    263,
+    267,
+    209,
+    239,
+    211,
+    195,
+    178,
+    175,
+    185,
+    0
+   ],
+   [
+    0,
+    0,
+    330,
+    253,
+    241,
+    260,
+    262,
+    277,
+    255,
+    252,
+    242,
+    256,
+    212,
+    207,
+    269,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    318,
+    225,
+    257,
+    300,
+    261,
+    256,
+    270,
+    255,
+    236,
+    254,
+    258,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    351,
+    349,
+    226,
+    224,
+    221,
+    143,
+    272,
+    308,
+    289,
+    206,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    383,
+    376,
+    305,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    408,
+    467,
+    523,
+    0,
+    0,
+    0,
+    0,
+    363,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    559,
+    0,
+    0,
+    0,
+    0,
+    430,
+    452,
+    4,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ]
+  ],
+  "min_n_shown": 20
+ }
+}

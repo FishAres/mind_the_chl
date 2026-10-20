@@ -13,9 +13,11 @@ with the training years.
 
 | | |
 |---|---|
+| [docs/HANDOFF.md](docs/HANDOFF.md) | Current state, working rules and candidate next steps (2026-10-20). Start here in a new session. |
 | [analyses/FINDINGS.md](analyses/FINDINGS.md) | Dated log of every experiment round and what it showed. Read before planning a run. |
 | [models/RUNS.md](models/RUNS.md) | Every training run: settings, val/test MAE, epochs, whether its weights are on disk. Regenerate with `python -m chl_cnn.runs_index`. |
 | [analyses/BLACK_SEA.md](analyses/BLACK_SEA.md) | Black Sea results so far and open questions. |
+| [analyses/tracer/TRACER.md](analyses/tracer/TRACER.md) | CHL-as-tracer project (shelved 2026-10-20): learned transport + fading forecasts, diagnostics, flow gating checks. |
 | [analyses/forecast/MODELS.md](analyses/forecast/MODELS.md) | Schematics of the gap-fill, forecast and nowcast set-ups ([PDF](analyses/forecast/MODELS.pdf)). |
 | [analyses/IDEAS.md](analyses/IDEAS.md) | Candidate directions. |
 | [notebooks/progress.ipynb](notebooks/progress.ipynb) | Live training curves and per-day prediction maps for any run (ipywidgets). |
@@ -64,8 +66,8 @@ the `--epochs` schedule, for short comparisons with an existing run), `--context
 nowcast windows), `--donor-exclude D`, `--eval-only --init-from RUN`.
 
 Run one trainer at a time (`flock ~/mind_the_chl_gap/logs/gpu.lock ...`) inside tmux. SageMaker stops an idle instance
-after 60 min. A keepalive loop that touches `/tmp/.sagemaker-last-active-timestamp` while a trainer runs is in
-`~/mind_the_chl_gap/logs/keepalive.sh`.
+after 60 min. A keepalive loop that touches `/tmp/.sagemaker-last-active-timestamp` while a `python -m chl_cnn.*` or
+`python -m analyses.*` process runs is in `~/mind_the_chl_gap/logs/keepalive.sh` (start it in tmux session `keepalive`).
 
 ## Gotchas
 

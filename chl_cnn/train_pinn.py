@@ -74,6 +74,15 @@ Returning after an interruption (2026-10-15; --return, default on; --no-return s
   scheduler set to its epoch, history truncated to it, fresh optimizer / GradScaler / RNG, arguments not checked; prints
   "LEGACY RESUME: optimizer state reset at epoch N". config.json records resume_events, legacy_resume, legacy_resume_epoch.
 
+2024 hackweek ("upstream") protocol (2026-10-20; every default unchanged; analyses/upstream/compare.py scores the runs)
+  --store io_up   store_io_up.py: their box 32N-11.75S, 42-101.75E (176 x 240), their record days, split train 2015-01-01..
+                  2017-12-31, val 2018-01-01..2019-01-01, test 2019-01-01..2020-01-01 (their inclusive slices; val and test
+                  share 2019-01-01). Runs land in models/pinn/upstream/<run>; preds.npz holds float32 raw output on every pixel.
+  --fake-mask shift10   their fixed mask for train, val and test: hidden = finite L3 at t & cloud code 0 at record t+10 (& our
+                  ocean mask). No donor draws. Needs --context-clouds none (neighbour days unmasked, as theirs).
+  --feat-today-only     temporal3d: features only on day t (zeros on the other window days).
+  --doy-input / --land-input   static sin/cos(day of year) channels / a land (not-ocean) channel.
+
 Prior-knowledge terms (v1), each off by default
   --src-clim      S += d/dt of the day-of-year ln CHL climatology (seasonal source, no parameters)
   --src-ekman     S += alpha * sum_k kappa_k * wE+_k(t) / h0 * taper(lat): upward Ekman pumping from the
@@ -96,6 +105,10 @@ Black Sea store (2026-10-09; every IO default unchanged)
   --store blk4    store_blk4.py: the same data 2x2 block-averaged to ~4.5 km (197 x 275; CHL = exp(mean ln CHL) where >= 2 of 4
                   fine pixels are observed). Behaves exactly like blk (sst -> sst32, split, latitude handling) except
                   --lag-max defaults to 10 cells (the same physical distance as blk's 20). Scores are on the 4 km target.
+  --geo-static    (2026-10-17) 10 extra static channels from the store: log10(max(depth.npy, 5 m)), log10(1 + distance km)
+                  to each of the 8 river mouths of river_dist.npy (river_names.json order), and a physics-availability mask
+                  (1 where salinity and currents are finite on > 50 % of days; 0 in most of Azov / Marmara, where those
+                  features are 0-filled). Each z-scored over ocean pixels, 0 on land. Needs --store blk / blk4.
   --feat-device cpu   features and currents are not kept on the GPU (8 x 1.7 GB on blk): each batch is read from the
                   memory-mapped store, pinned and copied (z-scoring on the GPU). gpu = the IO behaviour.
   --phys semi-lagrangian   residual r = [C(t+1)(x) - C(t-1)(x - 2 u dt)] / 2dt - K lap C(t) - S: the day-(t-1) field is
@@ -139,7 +152,7 @@ from .models import build_model, count_params, Temporal3DNet
 from .physics import grid_metrics
 from .plotting import OKABE_ITO, MAP_CMAP, ERR_CMAP
 
-from .runs import run_dir
+from .runs import run_dir, CATEGORIES
 DT = 86400.0
 H0 = 30.0   # reference mixed-layer depth (m) for the Ekman source
 
@@ -147,7 +160,11 @@ H0 = 30.0   # reference mixed-layer depth (m) for the Ekman source
 def parse(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--run", required=True)
-    p.add_argument("--store", choices=["io", "blk", "blk4"], default="io", help="io: Indian Ocean 0.25 deg store (store.py); blk: Black Sea 2 km store (store_blk.py); blk4: Black Sea 4 km store (store_blk4.py)")
+    p.add_argument("--store", choices=["io", "blk", "blk4", "io_up"], default="io", help="io: Indian Ocean 0.25 deg store (store.py); blk: Black Sea 2 km store (store_blk.py); blk4: Black Sea 4 km store (store_blk4.py); io_up: 2024 hackweek box / days / split (store_io_up.py)")
+    p.add_argument("--fake-mask", choices=["donor", "shift10"], default="donor", help="donor: fake clouds from a donor day (clouds.py); shift10: the 2024 hackweek mask, fixed per day for train/val/test (needs --store io_up, --context-clouds none)")
+    p.add_argument("--feat-today-only", action="store_true", help="temporal3d: physical features only on day t (zero on the other window days)")
+    p.add_argument("--doy-input", action="store_true", help="add static sin/cos(day of year) channels (without the lat/lon/depth of --coords)")
+    p.add_argument("--land-input", action="store_true", help="add a static land channel (1 where not ocean)")
     p.add_argument("--crop", action="store_true", help="crop the grid to the bounding box of the ocean mask (+1 pixel margin)")
     p.add_argument("--val-years", type=int, nargs="*", default=None, help="val years (default: data.VAL_YEARS for io; 2017 2021 for blk)")
     p.add_argument("--test-years", type=int, nargs="*", default=None, help="test years (default: data.TEST_YEARS for io; 2019 2023 for blk)")
@@ -198,6 +215,7 @@ def parse(argv=None):
     p.add_argument("--no-chl-input", action="store_true", help="physics-only inputs: drop the CHL value channels")
     p.add_argument("--cloud-input", action="store_true", help="keep the observation-mask channels as inputs (with --no-chl-input)")
     p.add_argument("--no-chl-today", action="store_true", help="drop day t's CHL channels only; CHL context days stay")
+    p.add_argument("--geo-static", action="store_true", help="blk/blk4: add bathymetry, 8 river-mouth distances and a salinity/currents availability mask as static channels")
     p.add_argument("--year-input", action="store_true", help="add a constant channel (year - 2009) / 7 (calendar-year drift)")
     p.add_argument("--donor-window", type=int, default=0, help="training fake-cloud donors drawn from days within +-W days of year (0 = any day); val/test donors unchanged")
     p.add_argument("--donor-exclude", type=int, default=0, help="no fake-cloud donor within D calendar days of its target day (training donors, uniform and "
@@ -262,6 +280,12 @@ def parse(argv=None):
         p.error("--eval-only needs --init-from")
     if a.init_from and not a.eval_only:
         p.error("--init-from is only supported with --eval-only")
+    if a.fake_mask == "shift10" and (a.store != "io_up" or a.context_clouds != "none"):
+        p.error("--fake-mask shift10 needs --store io_up and --context-clouds none")
+    if a.feat_today_only and a.model != "temporal3d":
+        p.error("--feat-today-only is only supported with --model temporal3d")
+    if a.doy_input and a.coords:
+        p.error("--doy-input duplicates the sin/cos channels of --coords")
     if a.lag_max is None:
         a.lag_max = {"blk": 20.0, "blk4": 10.0}.get(a.store, 5.0)
     return a
@@ -289,7 +313,8 @@ class EkmanSource(nn.Module):
 # model selection): the flag itself, the diagnostic-figure cadence and the eval chunk size
 RESUME_IGNORED = {"resume_best", "fig_every", "eval_batch"}
 # arguments added after --return: a resume.pt written before them is compared as if they had their default value
-RESUME_NEW_DEFAULTS = {"donor_exclude": 0, "eval_only": False, "init_from": None, "dilations": None, "continue_from": None}
+RESUME_NEW_DEFAULTS = {"donor_exclude": 0, "eval_only": False, "init_from": None, "dilations": None, "continue_from": None, "geo_static": False,
+                       "fake_mask": "donor", "feat_today_only": False, "doy_input": False, "land_input": False}
 
 
 def main(argv=None):
@@ -297,7 +322,7 @@ def main(argv=None):
     torch.manual_seed(a.seed)
     rng = np.random.default_rng(a.seed)
     dev = torch.device("cuda")
-    out = run_dir(a.run, "pinn", a.model)
+    out = run_dir(a.run, "pinn", a.model) if a.store != "io_up" else CATEGORIES["pinn/upstream"] / a.run
     if a.resume_best and (out / "metrics.json").exists():
         print(f"run {a.run} is complete ({out / 'metrics.json'} exists); nothing to do", flush=True)
         return
@@ -311,6 +336,10 @@ def main(argv=None):
             from . import store_blk4 as SB
         d = SB.load_store()
         val_years = tuple(a.val_years) if a.val_years else (2017, 2021); test_years = tuple(a.test_years) if a.test_years else (2019, 2023)
+    elif a.store == "io_up":
+        from . import store_io_up as SU
+        d = SU.load_store()
+        val_years, test_years = (2018,), (2019,)          # labels only: the split is SU.split_up (their inclusive date slices)
     else:
         d = S.load_store()
         val_years = tuple(a.val_years) if a.val_years else D.VAL_YEARS; test_years = tuple(a.test_years) if a.test_years else D.TEST_YEARS
@@ -326,7 +355,7 @@ def main(argv=None):
     n = len(TIMES)
     ocean = d["ocean"][ys, xs]
     H, W = ocean.shape
-    tr, va, te = D.split_by_years(TIMES, val_years, test_years)
+    tr, va, te = D.split_by_years(TIMES, val_years, test_years) if a.store != "io_up" else SU.split_up(TIMES)
     y = D.log_chl(rd("chl_l3"))
     obs = np.isfinite(y) & ocean
     obs_frac = obs.reshape(n, -1).sum(1) / ocean.sum()
@@ -334,13 +363,21 @@ def main(argv=None):
     print(f"store {a.store}: {n} days  train {len(tr)} val {len(va)} test {len(te)}  grid {H} x {W}  ocean px {int(ocean.sum())}  "
           f"val years {val_years} test years {test_years}", flush=True)
 
-    hid_va, don_va = C.fixed_hidden(obs, va, seed=a.eval_seed, times=TIMES, exclude=a.donor_exclude)
-    hid_te, don_te = C.fixed_hidden(obs, te, seed=a.eval_seed + 1, times=TIMES, exclude=a.donor_exclude)
+    if a.fake_mask == "shift10":     # their fixed mask (store_io_up.py): finite L3 at t & cloud code 0 at record t+10; donor unused
+        HUP = rd("hidden_up") & obs
+        print(f"shift10 mask: their hidden px outside our ocean mask (dropped): val {int((rd('hidden_up', va) & ~ocean).sum())} "
+              f"test {int((rd('hidden_up', te) & ~ocean).sum())} train {int((rd('hidden_up', tr) & ~ocean).sum())}", flush=True)
+        hid_va, don_va, hid_te, don_te = HUP[va], va.copy(), HUP[te], te.copy()
+    else:
+        hid_va, don_va = C.fixed_hidden(obs, va, seed=a.eval_seed, times=TIMES, exclude=a.donor_exclude)
+        hid_te, don_te = C.fixed_hidden(obs, te, seed=a.eval_seed + 1, times=TIMES, exclude=a.donor_exclude)
     if a.donor_exclude > 0:
         dd = lambda i, j: np.abs((TIMES[j] - TIMES[i]).astype("timedelta64[D]").astype(int))
         print(f"donor-exclude {a.donor_exclude}: min |donor - day| val {dd(va, don_va).min()} d, test {dd(te, don_te).min()} d", flush=True)
     hidden = np.zeros_like(obs); hidden[va], hidden[te] = hid_va, hid_te
     donor = np.zeros(n, dtype=np.int64); donor[va], donor[te] = don_va, don_te
+    if a.fake_mask == "shift10":
+        hidden[tr] = HUP[tr]; donor[tr] = tr
 
     T = lambda x: torch.as_tensor(np.ascontiguousarray(x), device=dev)
     feat_stats = {}
@@ -425,16 +462,38 @@ def main(argv=None):
         doy = (np.asarray(TIMES) - np.asarray(TIMES).astype("datetime64[Y]")).astype("timedelta64[D]").astype(int)
         ang = 2 * np.pi * doy / 365.25
         DOYg = T(np.stack([np.sin(ang), np.cos(ang)], 1).astype("float32"))
+    if a.doy_input:
+        doy = (np.asarray(TIMES) - np.asarray(TIMES).astype("datetime64[Y]")).astype("timedelta64[D]").astype(int)
+        ang = 2 * np.pi * doy / 365.25
+        DOYg = T(np.stack([np.sin(ang), np.cos(ang)], 1).astype("float32"))
+    if a.land_input:
+        LANDg = T((~ocean).astype("float32"))
+    n_geo = 0
+    if a.geo_static:
+        if a.store not in ("blk", "blk4"):
+            raise SystemExit("--geo-static needs --store blk or blk4")
+        oc_ = ocean.astype(bool)
+        dep = np.log10(np.maximum(np.nan_to_num(np.asarray(d["depth"])[ys, xs], nan=5.0), 5.0))
+        riv = np.log10(1 + np.nan_to_num(np.asarray(d["river_dist"])[:, ys, xs].astype("float32"), nan=0.0))
+        samp = slice(None, None, 10)
+        ok = (np.isfinite(rd("so", samp)) & np.isfinite(rd("u_curr", samp))).mean(0) > 0.5
+        geo = np.concatenate([dep[None], riv, ok[None].astype("float32")]).astype("float32")
+        for k in range(len(geo)):
+            g = geo[k]; mu, sd = g[oc_].mean(), g[oc_].std()
+            geo[k] = np.where(oc_, (g - mu) / (sd if sd > 0 else 1.0), 0.0)
+        GEOg = T(geo); n_geo = len(geo)
+        print(f"geo-static: {n_geo} channels (depth, 8 river distances, physics-ok mask: {ok[oc_].mean():.1%} of ocean px ok)", flush=True)
+    n_up = (2 if a.doy_input else 0) + (1 if a.land_input else 0)       # --doy-input sin/cos, --land-input
     n_chl = 0 if a.no_chl_input else 1                       # CHL value channels on context days
     n_mask = 1 if (a.cloud_input or not a.no_chl_input) else 0
     n_chl_t = 0 if (a.no_chl_input or a.no_chl_today) else 1   # CHL value channel on day t
     n_mask_t = 1 if (a.cloud_input or n_chl_t) else 0
     foffs = [k for k in range(-a.feat_context, a.feat_context + 1) if k != 0]
     NBF = {k: T(T2.neighbour_index(TIMES, k)) for k in foffs}
-    in_ch = len(a.features) * (1 + len(foffs)) + (n_chl_t + n_mask_t) + (n_chl + n_mask) * len(offsets) + (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0)
+    in_ch = len(a.features) * (1 + len(foffs)) + (n_chl_t + n_mask_t) + (n_chl + n_mask) * len(offsets) + (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0) + n_geo + n_up
     if a.model == "temporal3d":   # per-day channels [F features, CHL value, visible mask] x T days; static 2D channels after the stem
         c_day, n_days = len(a.features) + 2, len(win_offs)
-        n_static = (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0)
+        n_static = (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0) + n_geo + n_up
         in_ch = a.t3d_width + n_static                          # backbone input channels
     YEARg = T(((np.asarray(TIMES).astype("datetime64[Y]").astype(int) + 1970 - 2009) / 7.0).astype("float32"))
     if a.diff_fill:
@@ -503,6 +562,13 @@ def main(argv=None):
             m = m & OBSg[jd]
         return j, ok, m
 
+    def up_static(ch, bi):
+        """--doy-input (sin/cos day of year) and --land-input channels, appended last (nothing when both are off)."""
+        if a.doy_input:
+            ch.append(DOYg[bi].view(-1, 2, 1, 1).expand(-1, -1, H, W))
+        if a.land_input:
+            ch.append(LANDg.view(1, 1, H, W).expand(len(bi), -1, -1, -1))
+
     def make_inputs(bi, hid):
         vis = OBSg[bi] & ~hid
         ch = [feats(bi)]
@@ -526,6 +592,9 @@ def main(argv=None):
             ch.append(DOYg[bi].view(-1, 2, 1, 1).expand(-1, -1, H, W))
         if a.year_input:
             ch.append(YEARg[bi].view(-1, 1, 1, 1).expand(-1, -1, H, W))
+        if a.geo_static:
+            ch.append(GEOg.unsqueeze(0).expand(len(bi), -1, -1, -1))
+        up_static(ch, bi)
         if a.diff_fill:
             ch.append(((diffusion_fill(bi, vis) - chl_mu) / chl_sd).unsqueeze(1))
         return torch.cat(ch, 1)
@@ -540,6 +609,9 @@ def main(argv=None):
             ch.append(DOYg[bi].view(-1, 2, 1, 1).expand(-1, -1, H, W))
         if a.year_input:
             ch.append(YEARg[bi].view(-1, 1, 1, 1).expand(-1, -1, H, W))
+        if a.geo_static:
+            ch.append(GEOg.unsqueeze(0).expand(len(bi), -1, -1, -1))
+        up_static(ch, bi)
         return torch.cat(ch, 1) if ch else None
 
     def make_inputs_3d(bi, hid):
@@ -558,7 +630,8 @@ def main(argv=None):
             else:
                 jf = NBF[k][bi]; okf = (jf >= 0).view(-1, 1, 1, 1); jf = jf.clamp(min=0)
                 j, ok, m = nb_masks(bi, k)
-                days.append(torch.cat([feats(jf) * okf, (chl_z(j) * m).unsqueeze(1), m.float().unsqueeze(1)], 1))
+                fk = torch.zeros((len(bi), len(a.features), H, W), device=dev) if a.feat_today_only else feats(jf) * okf
+                days.append(torch.cat([fk, (chl_z(j) * m).unsqueeze(1), m.float().unsqueeze(1)], 1))
         return torch.stack(days, 2), static_inputs(bi)
 
     def deq_state(bi, hid):
@@ -719,12 +792,15 @@ def main(argv=None):
 
     def train_epoch(ep):
         model.train()
-        if a.donor_exclude > 0:
+        if a.fake_mask == "shift10":                           # fixed mask (set once in HIDg); no donor draw
+            pass
+        elif a.donor_exclude > 0:
             donors = tr[C.seasonal_donor_indices(TIMES[tr], rng, a.donor_window, exclude=a.donor_exclude)] if a.donor_window > 0 \
                 else tr[C.donor_indices(len(tr), rng, times=TIMES[tr], exclude=a.donor_exclude)]
         else:
             donors = tr[C.seasonal_donor_indices(TIMES[tr], rng, a.donor_window)] if a.donor_window > 0 else tr[C.donor_indices(len(tr), rng)]
-        HIDg[T(tr)] = T(obs[tr] & ~obs[donors]); DONg[T(tr)] = T(donors)
+        if a.fake_mask != "shift10":
+            HIDg[T(tr)] = T(obs[tr] & ~obs[donors]); DONg[T(tr)] = T(donors)
         lam = lam_at(ep)
         td = tp = 0.0; cnt = 0; dq_it = dq_res = 0.0; dq_n = 0
         order = T(rng.permutation(tr))
@@ -996,6 +1072,7 @@ def main(argv=None):
     ev = np.r_[va_s, te_s]
     preds = np.full((len(ev), H, W), np.nan, dtype="float32")
     rstats = dict(val=residual_stats(va_s, preds[:len(va_s)]), test=residual_stats(te_s, preds[len(va_s):]))
+    preds_raw = preds.copy() if a.store == "io_up" else None     # io_up: raw output on every pixel, float32 (analyses/upstream)
     preds[:, ~ocean] = np.nan
     pv, pt = preds[:len(va_s)], preds[len(va_s):]
     clim_ref = climatology_reference(y, tr)
@@ -1026,7 +1103,10 @@ def main(argv=None):
         scores=scores, per_day_test=per_day_metrics(y[te_s], pt, hid_te_s), per_day_val=per_day_metrics(y[va_s], pv, hid_va_s),
         obs_frac=dict(val=obs_frac[va_s].tolist(), test=obs_frac[te_s].tolist())), indent=1))
     torch.save(dict(model=model.state_dict(), src_ekman=(src_ekman.state_dict() if a.src_ekman else None)), out / "model.pt")
-    np.savez_compressed(out / "preds.npz", pred=preds.astype("float16"), idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s)
+    if preds_raw is not None:
+        np.savez_compressed(out / "preds.npz", pred=preds_raw, idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s, time=TIMES[ev])
+    else:
+        np.savez_compressed(out / "preds.npz", pred=preds.astype("float16"), idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s)
     print("wrote", out, f"({(time.time() - t_start) / 60:.1f} min)")
 
 

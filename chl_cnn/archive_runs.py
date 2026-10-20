@@ -40,7 +40,7 @@ def settings(cat, c):
     for k in ["lam", "loss", "vis_weight", "grad_weight", "width", "spectral", "donor_window", "unet_depth", "epochs"]:
         if k in c and c[k] not in (None, 0, 0.0, False, "l1") and not (k == "unet_depth" and c.get("model") != "unet"):
             parts.append(f"{k}={c[k]}")
-    for k in ["year_input", "no_chl_input", "no_chl_today", "cloud_input", "src_clim", "src_ekman", "diff_fill"]:
+    for k in ["year_input", "no_chl_input", "no_chl_today", "cloud_input", "src_clim", "src_ekman", "diff_fill", "feat_today_only", "doy_input", "land_input"]:
         if c.get(k):
             parts.append(k if c[k] is True else f"{k}={c[k]}")
     if c.get("phys_weight", "none") != "none":
@@ -53,7 +53,7 @@ def settings(cat, c):
     if c.get("context_before") is not None and (c.get("context_before"), c.get("context_after")) != (c.get("context"), c.get("context")):
         parts.append(f"window=t-{c['context_before']}..t+{c['context_after']}")
     for k, d in [("phys", "none"), ("context_clouds", "persist"), ("donor_exclude", 0), ("batch", None), ("lr", 1e-3),
-                 ("stop_epoch", 0), ("continue_from", None), ("init_from", None)]:
+                 ("stop_epoch", 0), ("continue_from", None), ("init_from", None), ("fake_mask", "donor")]:
         if k in c and c[k] not in (d, None):
             parts.append(f"{k}={c[k]}")
     return " ".join(parts)

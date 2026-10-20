@@ -1,0 +1,38 @@
+{
+ "check": {
+  "step1_vs_cache_max_abs_px_day": 6.258487701416016e-05,
+  "n_both": 315763,
+  "nan_mismatch": 0
+ },
+ "pred": [
+  "A",
+  "A_s1",
+  "B",
+  "A_ep20",
+  "A_s1_ep20",
+  "B_ep20",
+  "x0.25",
+  "x1.0",
+  "persistence"
+ ],
+ "band_km": [
+  20.0,
+  70.0
+ ],
+ "n_val_starts": 351,
+ "n_train_starts": 2449,
+ "seconds": 70,
+ "runs": {
+  "A": "tr1b_band_s0",
+  "A_s1": "tr1b_band_s1",
+  "B": "tr1b_pix_s0"
+ },
+ "step1": "tr_rea_geo_wind",
+ "decomp_info": {
+  "clim_sigma_days": 15.0,
+  "train_days": 2542,
+  "doy_bins": 366,
+  "ocean_px_with_no_train_current": 3338,
+  "train_count_per_doy_bin_ocean_median": 6.010166906718631
+ }
+}
