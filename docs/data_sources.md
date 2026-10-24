@@ -22,6 +22,16 @@ The same bucket folder also holds project outputs: `U-Net_with_CHL_pred.zarr`, `
 
 How the dataset was built is documented at https://safs-varanasi-internship.github.io/indian-ocean-zarr/. The build code is not in the project repo.
 
+### CHL variables in IO.zarr (checked 2026-10-21 on 3 days: 2003-03-10, 2015-07-20, 2020-11-05; coverage on every 15th day of 6 years)
+
+| variable | what it is | source | coverage | usable as input? |
+|---|---|---|---|---|
+| `CHL_cmes-level3` | GlobColour L3 multi-sensor, observations only | OCEANCOLOUR_GLO_BGC_L3_MY_009_103 (attrs; geo-smart book IO_Zarr.md) | 8–33 % of grid pixel-days | yes: our target and only CHL input |
+| `CHL_cmes-gapfree` | GlobColour L4 gap-filled, built from the L3; flags 1 = observed, 2 = interpolated (fractional at 0.25°) | OCEANCOLOUR_GLO_BGC_L4_MY_009_104 | ~63 % (= all ocean) | no: equals L3 exactly at observed pixels, and the interpolation uses day-t observations, so it would leak hidden pixels |
+| `CHL` (+ `CHL_uncertainty`) | undocumented in both handbooks; behaves as a gap-filled product | not stated; its processor versions (OLCI 07.02) match the L4, not the L3 (07.04) | ~63 % (lower in 2022, 4 all-NaN days of 25 sampled) | no: never equal to L3 at observed pixels (0–1.7 %); mean \|Δ ln\| to L4 0.04–0.12; uncertainty median 48 % on L3 gaps vs 31 % on observed pixels |
+
+The SAFS handbook names the same products `CHL_my` (L3) and `CHL_interp_my` (gap-filled). Upstream use: the 2024/OHW25 U-Net used `CHL_cmes-level3` (target and t±1). The 2025–26 Simple CNN / CNN Part I–IV / CNN_2D used the L4 `CHL_cmes-gapfree` as target. `mean_std['CHL']` in their U-Net notebooks is their own key for the L3 z-score stats, not the `CHL` variable.
+
 
 ## Higher-resolution CHL for a region only
 

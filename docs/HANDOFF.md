@@ -1,24 +1,72 @@
-# Handoff: back to gap filling (2026-10-20)
+# Handoff: Indian Ocean gap filler, attention stems (2026-10-24)
 
-For a new session picking up the Black Sea gap-filler. Nothing is running; the GPU is free.
+For a new session. Nothing is running and the GPU is free; only tmux `keepalive` is up. The previous handoff (Black Sea,
+2026-10-20) is in [HANDOFF_2026-10-20_blacksea.md](HANDOFF_2026-10-20_blacksea.md).
+
+The last session used a lot of tokens. Keep the main session lean: delegate builds, queues and monitoring to subagents,
+read logs with `tail`/`grep` instead of whole files, and keep reports short.
 
 ## State
 
 | | |
 |---|---|
-| focus | gap filling on the Black Sea 4 km store (`--store blk4 --crop`); the Indian Ocean work is finished |
-| best run | `models/pinn/t3d/blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50`: 3D stem, λ 0.3, 50 epochs + two warm restarts (`--continue-from`), weights on disk |
-| best scores | val / test MAE 0.1498 / 0.1430; gradient ratio 0.54, gradient corr 0.66 (val, 1 px pairs) |
-| tried since, none better | `--geo-static` (neutral), width 96 (0.1527 / 0.1480 at 50 epochs, no restarts yet), post-hoc sharpening (test −0.0002), 4 km beats 2 km on 2 km truth (−0.0086) |
-| shelved | CHL tracer project, see [analyses/tracer/TRACER.md](../analyses/tracer/TRACER.md) |
-| decided next step | none. Candidates are in [BLACK_SEA.md section 6](../analyses/BLACK_SEA.md); none has been approved yet. |
+| focus | IO store (`--store io`): better gap filling via attention over ±8 context days |
+| best single model | `io6_tokdec_blend_spatial`, val / test MAE 0.1271 / 0.1275 (single seed) |
+| next best | `io4_tokdec_blend` 0.1276 / 0.1280; conv 3-seed ensemble 0.1279 / 0.1279 |
+| conv seed noise | conv ±4, 3 seeds: val 0.1301–0.1304, S60 0.0002 |
+| decided next step | none; nothing has been approved |
+| interpretation | the io5 Job 2 and io6 entries in FINDINGS.md are observations only; the user has not reviewed them yet |
+
+### IO models (60 epochs, batch 8, single seed unless noted)
+
+| run | val MAE | test MAE | grad ratio / corr 1 px | s/epoch |
+|---|---|---|---|---|
+| io6_tokdec_blend_spatial (io4 blend + 2 spatial attention blocks on tokens) | 0.1271 | 0.1275 | 0.546 / 0.629 | 128 |
+| io4_tokdec_blend (token decoder + own-pixel blend) | 0.1276 | 0.1280 | 0.548 / 0.631 | 108 |
+| io5_tokdec_blend_up0p3 (io4_tokdec_blend + physics λ 0.3) | 0.1276 | 0.1286 | 0.545 / 0.630 | — |
+| io4_tokdec (tokens only) | 0.1282 | 0.1287 | — | — |
+| io3_ptok4 (patch tokens, arm A) | 0.1282 | 0.1286 | — | 80 |
+| io6_tokdec_krig (learned kriging stem replaces blend) | 0.1283 | 0.1294 | 0.546 / 0.632 | 145 |
+| io2_tattn8 (pixel attention ±8, batch 4) | 0.1286 | 0.1272 | — | 286 |
+| io6_tokdec_krig_signed (kriging + signed head pair) | 0.1291 | 0.1297 | 0.544 / 0.631 | 159 |
+| conv ±4 (t3d_dil_c4_60ep_gdl100) | 0.1302 | 0.1305 | — | — |
+
+io6 val MAE split by whether a hidden pixel has a visible kriging key (n = 146 diag days, 487,572 hidden px, 417,788 with ≥ 1 key):
+
+| | ≥ 1 key | no key |
+|---|---|---|
+| io6_tokdec_blend_spatial | 0.1101 | 0.2425 |
+| io4_tokdec_blend | 0.1104 | 0.2448 |
+| io6_tokdec_krig | 0.1109 | 0.2471 |
+| io6_tokdec_krig_signed | 0.1113 | 0.2509 |
+| conv seed 0 | 0.1115 | 0.2577 |
 
 ## Read first
 
-1. [analyses/BLACK_SEA.md](../analyses/BLACK_SEA.md): results, error structure, gradient diagnosis, open questions.
-2. [analyses/FINDINGS.md](../analyses/FINDINGS.md): dated log of every experiment. Search before planning a run.
-3. [models/RUNS.md](../models/RUNS.md): every run with settings and scores (`python -m chl_cnn.runs_index`).
-4. [README.md](../README.md): set-up, the training recipe, flags.
+1. [analyses/FINDINGS.md](../analyses/FINDINGS.md): last four entries (io4, io5 Job 1 ablation, io5 Job 2, io6).
+   Search it before planning a run.
+2. [models/RUNS.md](../models/RUNS.md): every run with settings and scores (`python -m chl_cnn.runs_index`).
+3. [analyses/io6_kriging/DESIGN.md](../analyses/io6_kriging/DESIGN.md) and `analyses/io6_kriging/figures/` (variogram,
+   weight vs |ΔSST|, spread vs error, learned params).
+4. `notebooks/attention_explorer.ipynb`: per-day attention / blend / integrated-gradient panels for 6 IO models,
+   24 preset days (`analyses/attn_viz/explorer_days.json`). Caches in `analyses/attn_viz/explorer_cache/`; rebuild with
+   `python -W ignore -m analyses.attn_viz.build_explorer --run <run>` (CPU, ~18 GB RAM, 8–27 min).
+5. Bridge doc with claude.ai (CHL gap-filling project doc; ids in the `claude-bridge` skill). Log runs to #17+.
+6. [README.md](../README.md): set-up, the training recipe, flags.
+
+## Code added 2026-10-23..24
+
+- `chl_cnn/tokdec.py` (`--t3d-stem tokdec`, `--tokdec-blend`, `--tokdec-spatial N`).
+- `chl_cnn/krig.py`, `chl_cnn/krig_triton.py` (`--tokdec-krig`, `--krig-*`). Triton kernels default to TF32
+  (`--krig-prec ieee` for fp32); PyTorch reference via `--krig-impl torch`. `--krig-advect` exists on the torch path only,
+  never run. Triton needs `cuda.h`; `krig.py` sets CPATH to TensorFlow's CUDA headers when CPATH is unset.
+- `chl_cnn/ablate.py` / `train_pinn.py --ablate` (io5 input ablation).
+- `chl_cnn/attn_explorer.py`, `analyses/attn_viz/build_explorer.py`.
+- Queues: `~/mind_the_chl_gap/logs/{io5,io6}/queue.sh`. Backups of edited files: `logs/io6/*.pre_io6.py.bak`,
+  `logs/io5/train_pinn.pre_io5.py.bak`.
+- Fixed 2026-10-24: io6 queue checked `<run>_diag.npz` but `io6_eval.py` wrote `<run>_rec_diag.npz`. The recorder
+  pass was flagged failed and the key split and 5 figures were missing. Files renamed, `queue.sh` patched, scoring /
+  report / FINDINGS entry regenerated. Pre-fix results in `analyses/io6_kriging/results_pre_recfix/`.
 
 ## How the user works
 
@@ -28,39 +76,27 @@ For a new session picking up the Black Sea gap-filler. Nothing is running; the G
   its `history.json` at the same epoch.
 - Report gradient ratio and correlation (and their scale dependence) with MAE. Gradients at 20–70 km matter for
   fisheries use, and the user expects physics to help sharpen them.
-- Follow `~/shared/CLAUDE.md` for analysis and reporting:
-  - observations first, with interpretation in its own section;
-  - n with every number;
-  - colourblind-friendly plots (Okabe-Ito, `chl_cnn/plotting.py`) with titles that make no claims;
-  - concise tables, effect first and n last.
+- Follow `~/shared/CLAUDE.md`: observations first, interpretation in its own section; n with every number;
+  colourblind-friendly plots (Okabe-Ito, `chl_cnn/plotting.py`) with titles that make no claims; concise tables,
+  effect first and n last.
+- Write anything the user needs to paste into a file under `~/`; they can't copy from the console.
 - Keep data on local disk (`~/mind_the_chl_gap/data/`); the shared s3 mount is slow.
 
 ## Environment gotchas
 
-- **Idle stop.** The SageMaker space stops after 60 idle minutes; tmux jobs don't count as activity. Before any job
-  longer than an hour, start `tmux new -d -s keepalive ~/mind_the_chl_gap/logs/keepalive.sh`.
-  - It only keeps the instance up while a `python -m chl_cnn.*` or `python -m analyses.*` process runs, so launch jobs
-    that way.
-  - The pattern was widened on 2026-10-20. Before that, `analyses.*` jobs were unprotected, and one run was lost to an
-    idle stop on 10-19.
-- **After an instance restart.** tmux sessions are gone; restart keepalive and any queue.
-  - Packages live in `~/.local`, with numpy pinned at 1.26.4.
-  - tmux is `~/.local/bin/tmux`, a symlink into the conda env `~/.local/tmux-env`.
-  - Check with `python -c "import xarray, zarr"` and `which tmux`. Reinstall steps are in the README.
-- **Plot orientation.** Black Sea stores run south to north, so plot with `origin="lower"`.
-- **Notebook context panels.** `chl_cnn/viz.draw_day` picks context days by store index, while the trainer uses
-  calendar days. They differ on 18 val days, so the t±1 panels can be off there. Not fixed.
+- **Idle stop.** The SageMaker space stops after 60 idle minutes; tmux jobs don't count. Before any job longer than an
+  hour, check `~/.local/bin/tmux ls` shows `keepalive`, else start
+  `~/.local/bin/tmux new -d -s keepalive ~/mind_the_chl_gap/logs/keepalive.sh`. It only counts `python -m chl_cnn.*` or
+  `python -m analyses.*` processes, so launch jobs that way.
+- **After an instance restart.** tmux sessions are gone; restart keepalive and any queue (queues skip finished steps
+  and resume from `resume.pt`). Packages live in `~/.local`, numpy pinned at 1.26.4; tmux is `~/.local/bin/tmux`.
+- **Host RAM is ~30 GB.** Explorer cache builds (~18 GB) and recorder passes can OOM when run beside other jobs.
+- **IO SST is quantised to 0.25 K**: 78 % of neighbouring-pixel differences are exactly 0.
+- **IO.zarr CHL**: only `CHL_cmes-level3` is observations; `CHL` and `CHL_cmes-gapfree` are interpolation products.
+- **Black Sea plots** need `origin="lower"` (stores run south to north).
 
-## Unapproved candidate next steps (from the 10-17 to 10-20 sessions)
+## Parked: Black Sea
 
-- Black Sea seed noise. Every Δ so far is a single seed.
-- Copernicus L4 product scored on the same hidden pixels, as an external benchmark.
-- Width 96 with the warm restarts. More blocks, the ±3-day window, high-CHL loss weighting.
-- Warped context channels: context days moved into day t's frame with 0.25 × currents, optionally split into
-  < 20 / 20–50 / 50–150 km bands with fade-time confidence. The tracer results suggest structure at 20–50 km barely
-  moves, so the gain may be small.
-- Whether the gradient ratio is MAE shrinkage. If it is, the fix is a loss change or sampled (ensemble / generative)
-  outputs.
-- New store inputs not yet used by the gap-filler: rsntds (light) and friver (rivers).
-- Retrieval noise floor from OC-CCI per-pixel RMSD or SENSORMASK.
-- A fair 2 km comparison: the 20-epoch 4 km run against the 20-epoch 2 km run.
+Best run `blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50`, val / test 0.1498 / 0.1430. Unapproved
+candidates are in [HANDOFF_2026-10-20_blacksea.md](HANDOFF_2026-10-20_blacksea.md) and
+[BLACK_SEA.md section 6](../analyses/BLACK_SEA.md).

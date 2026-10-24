@@ -104,9 +104,19 @@ def _donor(ctx, cfg, day):
     return split, ctx["_donors"][key][int(day)]
 
 
+def _neighbours(ctx, k):
+    """Store index of the calendar day k days after each day (-1 if that date is not in the store), cached per context."""
+    nb = ctx.setdefault("_nb", {})
+    if k not in nb:
+        from .train2 import neighbour_index
+        nb[k] = neighbour_index(ctx["times"], k)
+    return nb[k]
+
+
 def draw_day(run_dir, day, ctx=None, fig=None):
     """2x4 panel for one day: visible input, prediction, truth, hidden-pixel error (top); input at t-1 and t+1
-    as the model sees it (donor clouds persisted unless --context-clouds none), SST, and the error histogram (bottom)."""
+    as the model sees it (calendar neighbours, as the trainer; donor clouds persisted unless --context-clouds none), SST, and the
+    error histogram (bottom)."""
     run_dir = Path(run_dir); pr = load_preds(run_dir); cfg = pr["cfg"]
     ctx = ctx or context_for(run_dir)
     ocean, lat, lon, times = ctx["ocean"], ctx["lat"], ctx["lon"], ctx["times"]
@@ -117,7 +127,6 @@ def draw_day(run_dir, day, ctx=None, fig=None):
     inp = np.where(obs_t & ~hid, truth, np.nan)
     err = np.where(hid, pred - truth, np.nan)
     split, donor = _donor(ctx, cfg, day)
-    n = len(times)
     org = "lower" if lat[0] < lat[-1] else "upper"              # Black Sea stores run south -> north
     ext = [lon[0], lon[-1], min(lat[0], lat[-1]), max(lat[0], lat[-1])]
     mae = float(np.nanmean(np.abs(err))) if np.isfinite(err).any() else np.nan
@@ -137,13 +146,17 @@ def draw_day(run_dir, day, ctx=None, fig=None):
     ax[0, 3].set(title=f"Error on fake-cloud hidden pixels (MAE {mae:.3f})", xlabel="lon (°E)", ylabel="lat (°N)")
     fig.colorbar(im, ax=ax[0, 3], label="pred − true, ln CHL", shrink=.85)
     for j, off in enumerate((-1, 1)):
-        i, di = day + off, donor + off
+        nb = _neighbours(ctx, off)                            # calendar neighbours, as the trainer (train2.neighbour_index)
+        i, di = int(nb[day]), int(nb[donor])
+        di = di if di >= 0 else donor                         # trainer: donor's neighbour missing -> the donor day's own clouds
         in_window = before >= 1 if off < 0 else after >= 1
-        if in_window and 0 <= i < n and 0 <= di < n:
+        if in_window and i >= 0:
             yi = ctx["y"](i); m = np.isfinite(yi) & ocean
             if persist:
                 m &= ctx["obs"](di)
             img, ttl = np.where(m, yi, np.nan), f"Input ln CHL, day t{off:+d} (visible to the model)"
+        elif in_window:
+            img, ttl = np.full_like(truth, np.nan), f"Day t{off:+d}: date not in the store"
         else:
             img, ttl = np.full_like(truth, np.nan), f"Day t{off:+d}: not in the model's input window"
         im = ax[1, j].imshow(img, extent=ext, cmap=MAP_CMAP, vmin=vmin, vmax=vmax, aspect="auto", origin=org)

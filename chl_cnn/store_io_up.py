@@ -18,6 +18,13 @@ Layout  ~/mind_the_chl_gap/data/io_up_store_2015_2019/
   hidden_up.npy     (n, H, W) bool, their fake-cloud mask (finite L3 & cloud code 0 at record t+10)
   record_time.npy   the full record list (9193 dates)
   up_norm.json      their label mean / std of ln L3 over all records, counts, and data checks
+
+2024 recipe extras (2026-10-20; train_pinn.py --recipe up2024; python -m chl_cnn.store_io_up --recipe-extras)
+  up24_<var>.npy    float32 (n, H, W) air_temp, sst, u_wind, v_wind read again from IO.zarr (the store copies are float16:
+                    0.25 K steps at 300 K), as their notebook uses the float32 zarr values
+  up24_cloud.npy    uint8 (n, H, W) CHL_cmes-cloud code at each store day (0 clear, 1 cloud, 2 land)
+  up24_cloud_first.npy  uint8 (H, W) the code on the first record (1997-10-01): their land_flag source
+  recipe_up2024(d) builds their 13 input channels and z-scored target from these (U-Net_Tutorial cells 9, 12).
 """
 import json
 
@@ -126,5 +133,102 @@ def load_store():
     return d
 
 
+# ---------------------------------------------------------------- 2024 recipe (train_pinn.py --recipe up2024)
+UP24_FEATURES = ["u_wind", "v_wind", "sst", "air_temp"]            # their cell 10 order
+UP24_CHANNELS = UP24_FEATURES + ["sin_time", "cos_time", "masked_CHL", "prev_day_CHL", "next_day_CHL",
+                                 "land_flag", "real_cloud_flag", "valid_CHL_flag", "fake_cloud_flag"]
+UP24_TRAIN = ("2015-01-01", "2018-01-01")      # their xarray slice (inclusive); stats use [start, end) (cell 9 index range)
+
+
+def split_up2024(times):
+    """(train, val, test) store indices with their inclusive slices for all three: train 2015-01-01..2018-01-01 (1097 days,
+    2018-01-01 also a val day), val 2018-01-01..2019-01-01, test 2019-01-01..2020-01-01."""
+    t = np.asarray(times).astype("datetime64[D]")
+    between = lambda a, b: np.flatnonzero((t >= np.datetime64(a)) & (t <= np.datetime64(b)))
+    return between(*UP24_TRAIN), between("2018-01-01", "2019-01-01"), between("2019-01-01", "2020-01-01")
+
+
+def build_recipe_extras(verbose=True):
+    """Write up24_<var>.npy (float32 features), up24_cloud.npy and up24_cloud_first.npy for the store days."""
+    out = store_path()
+    times = np.load(out / "time.npy"); rec_time = np.load(out / "record_time.npy")
+    ds = xr.open_zarr(D.SRC, consolidated=True).sel(**BOX)
+    tpos = np.searchsorted(ds.time.values, times)
+    assert np.array_equal(ds.time.values[tpos], times)
+    first = int(np.searchsorted(ds.time.values, rec_time[0])); assert ds.time.values[first] == rec_time[0]
+    np.save(out / "up24_cloud_first.npy", ds[CLOUD].isel(time=first).values.astype("uint8"))
+    for v, dt in [(CLOUD, "uint8")] + [(f, "float32") for f in UP24_FEATURES]:
+        x = ds[v].isel(time=tpos).values.astype(dt)
+        np.save(out / ("up24_cloud.npy" if v == CLOUD else f"up24_{v}.npy"), x)
+        if verbose:
+            print(f"  {v}: {x.shape} {x.dtype}" + (f" codes {np.unique(x).tolist()}" if v == CLOUD else
+                                                   f" nan frac {np.isnan(x).mean():.4f}"), flush=True)
+
+
+def recipe_up2024(d, verbose=True):
+    """Their 13 input channels and target for every store day (U-Net_Tutorial cells 9, 12; records = store days).
+
+    Returns dict(X (n, 13, H, W) float32 [UP24_CHANNELS order; z-scored numeric channels, NaN -> 0; 0/1 flags],
+                 Y (n, H, W) float32 target z = (ln L3 - their all-record mean) / std, NaN -> 0,
+                 masked (n, H, W) bool = their hidden px (finite L3 & cloud code 0 at record t+10; no ocean cut),
+                 stats {channel: (mean, std)}, checks {...}).
+      numeric  u_wind, v_wind, sst, air_temp (float32 IO.zarr values); sin / cos of float32((days since 1900-01-01) / 365 * 2 pi);
+               masked_CHL = ln L3 with their hidden px NaN; prev_day / next_day CHL = ln L3 of records t-1 / t+1, unmasked, 0 past
+               the store ends (their 0 padding at the record ends; never used for 2015-2019 days).
+               mean / std = nanmean / nanstd over the train records [2015-01-01, 2018-01-01) (prev / next over their own values
+               on those records), computed in float64.
+      flags    land = cloud code 2 on the first record; real cloud = code 1 at t; valid = finite masked_CHL;
+               fake cloud = (land + real cloud + valid) == 0.
+    """
+    p = store_path()
+    times = np.asarray(d["time"]).astype("datetime64[D]")
+    n = len(times)
+    rel = np.asarray(d["record_idx"]); assert np.array_equal(np.diff(rel), np.ones(n - 1, int)), "store days must be consecutive records"
+    y = D.log_chl(np.asarray(d["chl_l3"]))
+    hid = np.asarray(d["hidden_up"])
+    cloud = np.load(p / "up24_cloud.npy"); cloud0 = np.load(p / "up24_cloud_first.npy")
+    i0, i1 = np.searchsorted(times, np.datetime64(UP24_TRAIN[0])), np.searchsorted(times, np.datetime64(UP24_TRAIN[1]))
+    st = slice(i0, i1)                                                   # train records [2015-01-01, 2018-01-01)
+    H, W = y.shape[1:]
+    X = np.zeros((n, len(UP24_CHANNELS), H, W), dtype="float32")
+    stats = {}
+
+    def put(c, arr):
+        name = UP24_CHANNELS[c]
+        tr_ = arr[st].astype("float64")
+        mu, sd = float(np.nanmean(tr_)), float(np.nanstd(tr_))
+        stats[name] = (mu, sd)
+        X[:, c] = np.nan_to_num((arr - mu) / sd, nan=0.0)
+
+    for c, f in enumerate(UP24_FEATURES):
+        put(c, np.load(p / f"up24_{f}.npy", mmap_mode="r"))
+    day_rad = ((times - np.datetime64("1900-01-01")).astype("float64") / 365 * 2 * np.pi).astype("float32")
+    for c, fn in [(4, np.sin), (5, np.cos)]:
+        put(c, np.broadcast_to(fn(day_rad)[:, None, None], (n, H, W)))
+    masked = np.where(hid, np.nan, y).astype("float32")
+    put(6, masked)
+    prev = np.concatenate([np.zeros((1, H, W), "float32"), y[:-1]]); nxt = np.concatenate([y[1:], np.zeros((1, H, W), "float32")])
+    put(7, prev); put(8, nxt)
+    land = np.broadcast_to(cloud0 == 2, (n, H, W)); real = cloud == 1; valid = np.isfinite(masked)
+    fake = (land.astype(np.int8) + real + valid) == 0
+    for c, f in [(9, land), (10, real), (11, valid), (12, fake)]:
+        X[:, c] = f
+    mu, sd = d["up"]["label_mean"], d["up"]["label_std"]
+    Y = np.nan_to_num((y - mu) / sd, nan=0.0).astype("float32")
+    checks = dict(n_train_stat_records=int(i1 - i0), train_stat_first=str(times[i0]), train_stat_last=str(times[i1 - 1]),
+                  fake_ne_hidden_px=int((fake != hid).sum()), fake_px=int(fake.sum()), hidden_px=int(hid.sum()),
+                  cloud_codes=np.unique(cloud).tolist(), cloud0_codes=np.unique(cloud0).tolist(),
+                  land_px=int((cloud0 == 2).sum()), finite_L3_on_land_flag_px=int((np.isfinite(y) & land).sum()),
+                  real_and_finite_px=int((real & np.isfinite(y)).sum()), label_mean=mu, label_std=sd)
+    if verbose:
+        print("recipe up2024 channel stats (train records):", json.dumps({k: [round(v[0], 5), round(v[1], 5)] for k, v in stats.items()}), flush=True)
+        print("recipe up2024 checks:", json.dumps(checks), flush=True)
+    return dict(X=X, Y=Y, masked=hid, stats=stats, checks=checks)
+
+
 if __name__ == "__main__":
-    build_store()
+    import sys
+    if "--recipe-extras" in sys.argv:
+        build_recipe_extras()
+    else:
+        build_store()

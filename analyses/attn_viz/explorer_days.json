@@ -1,0 +1,236 @@
+{
+ "method": "Preset days (analyses/attn_viz/explorer_days.json, written once by --choose-days, the same for every run): per split, the days with\n>= 500 hidden px are binned by season (DJF, MAM, JJA, SON) x tercile of the day's observed fraction (store-observed / ocean px,\nterciles over the split); one day per bin, the one closest to the bin's median observed fraction (4 x 3 = 12 days per split). Val\nalways includes the 3 dates of the io3 weight-map figures (2001-03-02, 2001-10-29, 2007-06-27); they fill their own bins.\nHidden pixels are the trainer's fixed val / test masks (clouds.fixed_hidden, --eval-seed 0, no donor exclusion: every run here).",
+ "min_hidden_px": 500,
+ "splits": {
+  "val": [
+   {
+    "date": "2001-01-08",
+    "store_index": 1165,
+    "obs_frac": 0.3118,
+    "n_hidden": 3307,
+    "season": "DJF",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2001-03-02",
+    "store_index": 1218,
+    "obs_frac": 0.2797,
+    "n_hidden": 2854,
+    "season": "MAM",
+    "obs_tercile": "mid",
+    "forced": true
+   },
+   {
+    "date": "2001-05-22",
+    "store_index": 1299,
+    "obs_frac": 0.1859,
+    "n_hidden": 2777,
+    "season": "MAM",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2001-10-29",
+    "store_index": 1458,
+    "obs_frac": 0.4005,
+    "n_hidden": 6343,
+    "season": "SON",
+    "obs_tercile": "high",
+    "forced": true
+   },
+   {
+    "date": "2001-11-11",
+    "store_index": 1471,
+    "obs_frac": 0.3146,
+    "n_hidden": 3401,
+    "season": "SON",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2007-06-27",
+    "store_index": 3524,
+    "obs_frac": 0.1377,
+    "n_hidden": 2194,
+    "season": "JJA",
+    "obs_tercile": "low",
+    "forced": true
+   },
+   {
+    "date": "2007-12-05",
+    "store_index": 3685,
+    "obs_frac": 0.2054,
+    "n_hidden": 973,
+    "season": "DJF",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2013-02-17",
+    "store_index": 5586,
+    "obs_frac": 0.4571,
+    "n_hidden": 4019,
+    "season": "DJF",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2013-09-05",
+    "store_index": 5786,
+    "obs_frac": 0.1299,
+    "n_hidden": 2029,
+    "season": "SON",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2018-03-09",
+    "store_index": 7432,
+    "obs_frac": 0.4483,
+    "n_hidden": 7178,
+    "season": "MAM",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2018-06-07",
+    "store_index": 7522,
+    "obs_frac": 0.3783,
+    "n_hidden": 2931,
+    "season": "JJA",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2018-08-05",
+    "store_index": 7581,
+    "obs_frac": 0.2782,
+    "n_hidden": 3458,
+    "season": "JJA",
+    "obs_tercile": "mid",
+    "forced": false
+   }
+  ],
+  "val_tercile_cuts": [
+   0.2316,
+   0.3782
+  ],
+  "val_n_days_ok": 1413,
+  "test": [
+   {
+    "date": "2004-01-21",
+    "store_index": 2271,
+    "obs_frac": 0.3624,
+    "n_hidden": 4615,
+    "season": "DJF",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2004-09-15",
+    "store_index": 2509,
+    "obs_frac": 0.1907,
+    "n_hidden": 1915,
+    "season": "SON",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2004-12-31",
+    "store_index": 2616,
+    "obs_frac": 0.248,
+    "n_hidden": 2626,
+    "season": "DJF",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2010-03-13",
+    "store_index": 4514,
+    "obs_frac": 0.3496,
+    "n_hidden": 3996,
+    "season": "MAM",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2010-03-22",
+    "store_index": 4523,
+    "obs_frac": 0.2243,
+    "n_hidden": 3053,
+    "season": "MAM",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2010-11-26",
+    "store_index": 4772,
+    "obs_frac": 0.3515,
+    "n_hidden": 3773,
+    "season": "SON",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2016-07-21",
+    "store_index": 6836,
+    "obs_frac": 0.1546,
+    "n_hidden": 902,
+    "season": "JJA",
+    "obs_tercile": "low",
+    "forced": false
+   },
+   {
+    "date": "2016-11-29",
+    "store_index": 6967,
+    "obs_frac": 0.5155,
+    "n_hidden": 4432,
+    "season": "SON",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2016-12-25",
+    "store_index": 6993,
+    "obs_frac": 0.5484,
+    "n_hidden": 6550,
+    "season": "DJF",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2020-04-26",
+    "store_index": 8211,
+    "obs_frac": 0.5742,
+    "n_hidden": 7709,
+    "season": "MAM",
+    "obs_tercile": "high",
+    "forced": false
+   },
+   {
+    "date": "2020-07-11",
+    "store_index": 8287,
+    "obs_frac": 0.3294,
+    "n_hidden": 1471,
+    "season": "JJA",
+    "obs_tercile": "mid",
+    "forced": false
+   },
+   {
+    "date": "2020-08-18",
+    "store_index": 8325,
+    "obs_frac": 0.4528,
+    "n_hidden": 5668,
+    "season": "JJA",
+    "obs_tercile": "high",
+    "forced": false
+   }
+  ],
+  "test_tercile_cuts": [
+   0.2758,
+   0.4223
+  ],
+  "test_n_days_ok": 1450
+ }
+}

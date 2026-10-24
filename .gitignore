@@ -35,3 +35,10 @@ __pycache__/
 
 # small analysis inputs
 !analyses/blk/regions.npy
+
+# --- result tables (outputs; the numbers live in analyses/FINDINGS.md and models/RUNS.md)
+*.json
+*.csv
+# inputs the code reads
+!analyses/attn_viz/explorer_days.json
+!analyses/blk/region_names.json

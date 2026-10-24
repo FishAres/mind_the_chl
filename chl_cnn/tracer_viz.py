@@ -24,8 +24,14 @@ BASE_STYLE = {"persistence": ("#000000", "--"), "adv_x1.0": ("#56B4E9", "-."), "
 LS = ["-", "--", ":"]
 
 
-def tracer_runs():
-    return sorted(p.parent for p in CATEGORIES["tracer"].glob("*/history.json"))
+def tracer_runs(train_tracer_only=True):
+    """Runs in models/tracer. train_tracer_only: only runs whose history.json is in train_tracer.py format (val_model_common);
+    the trb_* / trs_* runs come from other trainers and have none of the curves drawn here."""
+    out = []
+    for h in CATEGORIES["tracer"].glob("*/history.json"):
+        if not train_tracer_only or "val_model_common" in json.loads(h.read_text()):
+            out.append(h.parent)
+    return sorted(out)
 
 
 def _hist(p):

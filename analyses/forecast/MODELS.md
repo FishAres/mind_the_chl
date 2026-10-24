@@ -120,3 +120,41 @@ Forecast scored on all observed day-t pixels (`results/t3d_fc_b8.json`):
 Figures: `python analyses/forecast/plot_model_schematics.py` (project root; no GPU). It rebuilds the example inputs from
 the store and reads predictions from each run's `preds.npz`. It writes the example-day fractions, the input checks and
 the reweighted values to `results/model_schematics.json`.
+
+## Patch-token gap-filler (`io3_ptok4`, arm A)
+
+![Patch-token gap-filler architecture](../io3_attn/figures/ptok_schematic.png)
+
+A gap-filler with a ±8-day window (t-8 ... t+8, 17 days). Its context days carry the donor's clouds. In place of the
+3D-conv stem, it has a patch-token stem (`chl_cnn/ptok.py` `PatchTokenNet`, `--t3d-stem patch`, arm `interp`, value
+`own`) that feeds the same dilated backbone.
+
+- **Tokens:** the grid is padded to 152 x 184 and cut into 4 x 4 px patches, giving a 38 x 46 grid with 1,164 ocean
+  patches. One token is built per ocean patch and day from 12 mask-aware statistics: the mean and std of the visible
+  ln-CHL anomaly (z-scored ln CHL minus that day's DOY climatology), the visible fraction, and the 9 physics means.
+  These go through a 2-layer MLP (12 -> 64 -> 64), and learned day-offset and patch-position embeddings are added. A
+  fully cloudy patch gives a physics-only token.
+- **Attention:** 2 pre-norm self-attention blocks (4 heads, D = 64) run over the 17 day tokens of each patch. There is
+  no attention across patches.
+- **Day weights:** for each pixel p and context day d,
+  `softmax_d( q(patch, t) . k(patch, d) / 8  [bilinearly upsampled]  +  MLP(visible_d, |d-t|/8, (d-t)/8, |SST_d - SST_t|) )`.
+  The softmax runs only over context days visible at p, plus a learned "no day" slot.
+- **Backbone input (21 channels):**
+  - the blend `sum_d w_d(p) a_d(p)` of the context days' own visible anomalies, the weight mass on real days, and the
+    weight entropy;
+  - day t's own 11 channels;
+  - the 7 static maps.
+
+  The day-t token FiLM-modulates the output of the backbone's first conv (zero-initialised, bilinearly upsampled).
+- **Fine detail:** it enters only through observed full-resolution pixels: the blend values and day t's own channels.
+  The token scores and FiLM reach full resolution only by bilinear upsampling.
+- **Output and loss:** as for the models above, the backbone outputs z for t-1, t, t+1 and the climatology is added
+  back. The loss is L1 on day-t hidden pixels + 0.1 x visible day-t pixels + 100 x the gradient-difference term +
+  L1 on the t-1 / t+1 pixels hidden by the donor clouds (weight 1).
+- **Size and cost:** 807,141 parameters (stem 201,762, of which 111,872 are the patch-position embedding; backbone
+  605,379). 80 s / epoch at batch 8, 9.7 GB peak GPU memory. The previous per-pixel attention stem (`io2_tattn8`,
+  `chl_cnn/tattn.py`; bottom panel) has 641,731 parameters and takes 286 s / epoch at batch 4 (11.3 GB). Source:
+  `analyses/io3_attn/results/partb.json`.
+
+Figure: `python analyses/io3_attn/schematic.py` (project root; no GPU). It reads the numbers from the run's
+`config.json` / `model.pt`, from `partb.json` and from the store's ocean mask.

@@ -61,6 +61,14 @@ Donor exclusion and eval-only scoring (2026-10-16)
                   best val epoch), then train --epochs more epochs under a fresh lr schedule starting again at --lr, with a
                   fresh history. Repeat RUN's architecture / input arguments.
 
+Learning-rate schedules (--sched; 2026-10-21 added plateau, every default unchanged)
+  cosine   CosineAnnealingLR over --epochs (default without the recipe); none = constant --lr (recipe default).
+  plateau  ReduceLROnPlateau(mode min, factor --plateau-factor 0.5, patience --plateau-patience 5, min_lr --min-lr 1e-6, torch's
+           default relative threshold 1e-4) stepped after every val pass with the model-selection score: val all-pixel z MSE with
+           --recipe up2024, else val hidden-pixel MAE. Its state is in resume.pt (--return restores it). --patience stays the
+           early-stopping patience. history.json "lr" = lr after the epoch's scheduler step (as before), "lr_used" = lr of the
+           epoch's updates; config.json final_lr and n_lr_drops (plateau only).
+
 Returning after an interruption (2026-10-15; --return, default on; --no-return starts fresh)
   Each time val MAE improves on the best since epoch 1 (independent of --ckpt-from), <run>/resume.pt is written atomically
   (resume.pt.tmp + os.replace) with the full training state at that epoch: model, AdamW, scheduler, GradScaler, src_ekman,
@@ -82,6 +90,90 @@ Returning after an interruption (2026-10-15; --return, default on; --no-return s
                   ocean mask). No donor draws. Needs --context-clouds none (neighbour days unmasked, as theirs).
   --feat-today-only     temporal3d: features only on day t (zeros on the other window days).
   --doy-input / --land-input   static sin/cos(day of year) channels / a land (not-ocean) channel.
+
+2024 hackweek training recipe (2026-10-20; --recipe up2024; default --recipe none leaves everything above unchanged)
+  Trains a model the way geo-smart/mind-the-chl-gap U-Net_Tutorial.ipynb (cells 9, 12, 15, 18, 28-29) trained their U-Net.
+  Needs --store io_up --fake-mask shift10 --context-clouds none and --model dilated, or --model temporal3d with
+  --context 1 --feat-context 1. Rejects --clim / --coords / --residual / --year-input / --doy-input / --land-input / --geo-static /
+  --grad-weight > 0 and the other input options. --features is ignored (their u_wind v_wind sst air_temp are used).
+  inputs   their 13 channels from store_io_up.recipe_up2024: u/v wind, SST, air temp (float32 IO.zarr values), sin / cos of
+           (days since 1900-01-01) / 365 * 2 pi, masked CHL (their hidden px NaN, no ocean cut), CHL of records t-1 / t+1 unmasked,
+           0/1 land / real-cloud / valid-CHL / fake-cloud flags; numeric channels z-scored over train records [2015-01-01,
+           2018-01-01), NaN -> 0. dilated: the 13 channels as is. temporal3d: 3-day window with 8 channels per day [4 features,
+           masked CHL, real cloud, valid, fake cloud] filled on day t only, CHL t-1 / t+1 in the CHL slot of days t-1 / t+1 (other
+           slots 0), and sin, cos, land flag as static channels after the stem (no information beyond the 13 channels).
+  target   ln L3 z-scored with their all-record mean / std (up_norm.json), NaN -> 0; the model's ln output is z * std + mean.
+  loss     plain MSE in z over every pixel of the 176 x 240 frame (land and real cloud with target 0 included), day-t head only;
+           + lambda * the usual physics residual when --lam > 0 (unchanged, including its --phys-warmup ramp).
+  training split train 2015-01-01..2018-01-01 inclusive (1097 days; 2018-01-01 is also a val day), val / test as io_up.
+           Adam (eps 1e-7 as Keras, no weight decay), lr --lr constant (no scheduler), batch 4, max 50 epochs, train order from a
+           tf.data-style shuffle buffer of 512 days refilled in time order (their shuffle(buffer_size=512), redrawn each epoch),
+           early stopping on val all-pixel z MSE with patience 10, best-val-loss weights restored, no --ckpt-from delay.
+           Forced: --batch 4 --ckpt-from 0 --wd 0 --val-stride 1 (--stop-epoch still works). Recipe defaults --epochs 50 --patience 10
+           --sched none; explicit values of these three are kept (2026-10-21), e.g. --sched plateau / cosine --epochs 200 --patience 15.
+           --continue-from RUN works with the recipe (2026-10-21): RUN's best-epoch resume.pt (model, Adam moments), fresh schedule
+           from --lr; history.json "source" and config.json continue_from_source record RUN, its best epoch and best val z MSE.
+  scoring  history.json val_up_mse / val_up_mae (all-pixel z, every val px); metrics.json scores.<split>.up_allpx (their Keras
+           evaluate MSE / MAE pooled over all days x pixels, and the all-zero-prediction values); preds.npz raw ln output on
+           every pixel. analyses/upstream/compare_recipe.py scores the runs.
+
+IO improvement track (2026-10-21; io2_* runs, analyses/io_improve/PLAN.md; every default unchanged: --eval-only --init-from
+t3d_dil_c4_60ep_gdl100 still gives val 0.130165 / test 0.130548)
+  --continue-weights-only  with --continue-from RUN: load RUN's model.pt weights only (fresh AdamW / GradScaler), for sources without resume.pt
+                  (runs from before --return). New parameters of this run's model that RUN lacks (--stoch noise convs) stay at their zero init.
+  --preds-f32     preds.npz "pred" in float32 (default float16).
+  --train-on-val  final fit: the val days join the training days (climatology, normalisation and donor pools follow tr). Val scores become
+                  in-sample; the fixed val hidden masks are restored before every val pass. Use with --no-select.
+  --no-select     no val-based selection: every epoch counts as the best (model.pt = last epoch), no early stop; not with --sched plateau.
+  --lr-replay RUN  the lr of epoch e is RUN's history lr_used[e] (replaces --sched; for replaying a plateau schedule without val).
+  --memory        temporal3d: 8 static channels from chl_cnn/memory.py (last / next valid observation outside +-4 days up to 60 days with
+                  their ages, 8- and 30-day medians excluding day t with counts), "valid" under the --context-clouds persist donor rule.
+  --residual-base anom  (with --memory --residual) output base = DOY climatology + w x 30-day median anomaly, w = n / (n + --anom-n0).
+  --t3d-stem attn  per-pixel temporal attention stem (chl_cnn/tattn.py) in place of the Conv3d stem; --attn-dim / --attn-heads /
+                  --attn-layers; --attn-query-memory conditions the pooling query on the --memory channels.
+  --stoch         stochastic output (chl_cnn/stoch.py): --stoch-ch noise channels injected through zero-initialised 1x1 convs; loss = fair
+                  CRPS of --stoch-train-samples samples on the pixel and gradient terms; model selection on val fair CRPS (--stoch-val-samples,
+                  fixed noise seed); the point prediction (metrics, preds.npz) is the sample median; samples.npz holds --stoch-final-samples
+                  samples of day t for every scored day. history.json gains val_crps.
+  --t3d-stem patch  gridded patch-token stem (chl_cnn/ptok.py; io3 track, 2026-10-23): one token per ocean P x P patch per window day from
+                  mask-aware patch statistics (CHL anomaly mean / std, visible fraction, physics means), self-attention over the days within each
+                  patch, per-pixel softmax day weights over the visible context days + a "no day" slot; the backbone gets the weighted blend of
+                  the visible anomalies, the weight mass and entropy, day t's own channels and the static channels, with FiLM from the day-t
+                  patch token. --ptok-patch / --ptok-dim / --ptok-heads / --ptok-layers / --ptok-arm {interp, pixq} / --ptok-value {own, lavg}
+                  (lavg: each context day's value is a Gaussian local masked average, chl_cnn/ptok.py). Dilated backbone only.
+  --t3d-stem tokdec  token-decoder stem (chl_cnn/tokdec.py; io4 track, 2026-10-23): per-day 12-channel input (CHL anomaly x visible, visible
+                  mask, physics x ocean, ocean mask) -> shared ViT patch embedding Conv2d(12, --tokdec-dim, 2P, stride P, padding P/2) on ptok's
+                  P x P patch grid (--ptok-patch) + day / position embeddings; --tokdec-layers self-attention blocks over the days of each ocean
+                  patch (--tokdec-heads); pooling with day t's token as query over all T tokens (day t included); [pooled, day-t token] decoded
+                  by Linear -> P^2 x --tokdec-ch per patch, pixel shuffle, Conv 3x3 + GELU; the backbone gets the decoded channels, day t's own
+                  channels and the static channels (no blend, no FiLM). --tokdec-blend adds ptok's arm-A blend / mass / entropy from the same
+                  tokens as 3 more backbone channels. Dilated backbone only; same restrictions as --t3d-stem patch.
+  --leak-day / --leak-offset / --leak-what / --leak-delta   leak test with --eval-only (analyses/io_improve/leak_test.py): the input copy of
+                  ln CHL of day t+offset is shifted on day t's hidden (or all observed) pixels; the --memory channels of t go to leak_memory.npz.
+
+Input ablation (io5 track, 2026-10-24; chl_cnn/ablate.py; default off, every default unchanged)
+  --ablate GROUP --ablate-mode {mean, doyclim}   with --eval-only (temporal3d, --t3d-stem conv / patch / tokdec): one input group is replaced
+                  in copies of the model inputs right before the forward pass, on every input path (the per-day stack incl. day t, the static
+                  channels, and the per-day climatology the token stems subtract). Physics groups (sst, so, mlotst, sla, currents, winds, air_temp,
+                  physics = all 9) on every window day: mean = 0 in z (training mean), doyclim = per-pixel DOY climatology of the training days
+                  (31-day window). ctx_chl / day_chl: CHL value and visible mask 0 on the context days / on day t. clim, clim_static, latlon, depth,
+                  year: static channel(s) -> mean over ocean px of the training days (clim also replaces the token stems' clim3d). Targets, masks,
+                  the --residual base and the residual diagnostics are unchanged. The first batch is checked (config.json ablate_info.check).
+
+Learned kriging and spatial token attention (io6 track, 2026-10-24; analyses/io6_kriging/DESIGN.md; default off, every default unchanged)
+  --tokdec-krig    with --t3d-stem tokdec (not with --tokdec-blend, which it replaces): the learned-kriging stem (chl_cnn/krig.py, Triton kernels
+                  chl_cnn/krig_triton.py). Each ocean px of day t attends over the visible observations of a fixed 484-offset space-time stencil
+                  (|dt| <= 4: dt 0 disc r3 excluding the px, |dt| 1-2 disc r5, |dt| 3-4 5 x 5 block + r6 ring), masked softmax + a "no key" slot,
+                  query / key / value features of DESIGN.md section 2 (advected-offset key feature with learned s, init --krig-s0), a learned
+                  relative-position bias per (offset, head). The backbone gets dv + 4 extra channels: attention output (--krig-dv), kriging estimate
+                  sum w a and spread from the exact anomalies, weight mass on real keys, weight entropy. --krig-dim / --krig-heads / --krig-dv.
+                  --krig-signed: + a signed head pair, w = softmax(s+) - lambda softmax(s-), lambda = sigmoid (init 0.1): 3 more channels (signed
+                  estimate, sum softmax(s+), lambda sum softmax(s-)). --krig-advect (opt-in): each lag's stencil centred at the nearest-neighbour
+                  position p + s0 u(p,t) dt (s0 = --krig-s0 fixed; PyTorch path). --krig-impl triton (default; fused kernels, tl.dot precision
+                  --krig-prec, default tf32) or torch (streamed chunks of --krig-chunk offsets, checkpointed, torch.compile).
+  --tokdec-spatial N   with --t3d-stem tokdec: N pre-norm spatial self-attention blocks over the pooled ocean-patch tokens of each sample (global,
+                  fused SDPA, --tokdec-heads heads, width --tokdec-dim, learned 2D relative-position bias per (patch offset, head); output
+                  projections zero-initialised) between the temporal pooling and the decoder (chl_cnn/tokdec.py).
 
 Prior-knowledge terms (v1), each off by default
   --src-clim      S += d/dt of the day-of-year ln CHL climatology (seasonal source, no parameters)
@@ -147,6 +239,7 @@ from . import train2 as T2
 from . import priors as PR
 from . import spatial_node as SN
 from . import deq as DQ
+from . import memory as MEM
 from .evaluate import metrics, per_day_metrics, climatology_reference
 from .models import build_model, count_params, Temporal3DNet
 from .physics import grid_metrics
@@ -165,6 +258,7 @@ def parse(argv=None):
     p.add_argument("--feat-today-only", action="store_true", help="temporal3d: physical features only on day t (zero on the other window days)")
     p.add_argument("--doy-input", action="store_true", help="add static sin/cos(day of year) channels (without the lat/lon/depth of --coords)")
     p.add_argument("--land-input", action="store_true", help="add a static land channel (1 where not ocean)")
+    p.add_argument("--recipe", choices=["none", "up2024"], default="none", help="up2024: train the 2024 hackweek way (their 13 inputs, all-pixel MSE in z, Adam constant lr, batch 4, early stopping on val loss; see the docstring)")
     p.add_argument("--crop", action="store_true", help="crop the grid to the bounding box of the ocean mask (+1 pixel margin)")
     p.add_argument("--val-years", type=int, nargs="*", default=None, help="val years (default: data.VAL_YEARS for io; 2017 2021 for blk)")
     p.add_argument("--test-years", type=int, nargs="*", default=None, help="test years (default: data.TEST_YEARS for io; 2019 2023 for blk)")
@@ -240,13 +334,18 @@ def parse(argv=None):
     p.add_argument("--src-ekman", action="store_true", help="lagged Ekman upwelling source, equator-tapered")
     p.add_argument("--phys-weight", choices=["none", "courant"], default="none")
     # training
-    p.add_argument("--epochs", type=int, default=12)
+    p.add_argument("--epochs", type=int, default=None, help="max training epochs (default 12; 50 with --recipe up2024)")
     p.add_argument("--stop-epoch", type=int, default=0, help="stop training after this many epochs while the lr schedule still spans --epochs (0 = off). For quick architecture comparisons against an existing --epochs run at the same epoch, without retraining that run.")
     p.add_argument("--batch", type=int, default=8)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--wd", type=float, default=1e-4)
-    p.add_argument("--sched", choices=["none", "cosine"], default="cosine")
-    p.add_argument("--patience", type=int, default=100)
+    p.add_argument("--sched", choices=["none", "cosine", "plateau"], default=None,
+                   help="lr schedule (default cosine; none with --recipe up2024). plateau: ReduceLROnPlateau on the model-selection score "
+                        "(val hidden MAE, or val all-pixel z MSE with --recipe up2024)")
+    p.add_argument("--plateau-factor", type=float, default=0.5, help="--sched plateau: lr multiplier at each drop")
+    p.add_argument("--plateau-patience", type=int, default=5, help="--sched plateau: epochs without improvement before an lr drop")
+    p.add_argument("--min-lr", type=float, default=1e-6, help="--sched plateau: lower bound of the lr")
+    p.add_argument("--patience", type=int, default=None, help="early-stopping patience in epochs (default 100; 10 with --recipe up2024)")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--no-channels-last", action="store_true", help="keep NCHW tensors (channels_last is ~35%% faster for the dilated CNN on A10G)")
     p.add_argument("--seed", type=int, default=0)
@@ -255,6 +354,65 @@ def parse(argv=None):
     p.add_argument("--ckpt-from", type=int, default=0, help="track/checkpoint the best val model only after this epoch (model.pt written on every improvement)")
     p.add_argument("--return", dest="resume_best", action=argparse.BooleanOptionalAction, default=True,
                    help="return to the best checkpointed training state (resume.pt) if the run was interrupted; --no-return starts fresh")
+    # io2 track (2026-10-21; every default unchanged, see the docstring section "IO improvement track")
+    p.add_argument("--continue-weights-only", action="store_true", help="--continue-from: load the source's model.pt weights only (fresh AdamW / GradScaler); "
+                   "for sources without resume.pt")
+    p.add_argument("--preds-f32", action="store_true", help="store float32 predictions in preds.npz (default float16)")
+    p.add_argument("--train-on-val", action="store_true", help="train on train + val days (final fit; val scores become in-sample)")
+    p.add_argument("--no-select", action="store_true", help="no val-based selection: every epoch counts as best, model.pt = last epoch, no early stop")
+    p.add_argument("--lr-replay", default=None, help="run name whose history.json lr_used sets the lr of each epoch (replaces --sched)")
+    p.add_argument("--memory", action="store_true", help="temporal3d: 8 memory channels (last/next valid obs outside +-4 d with age, 8-/30-day medians "
+                   "with counts; donor-masked like --context-clouds persist; chl_cnn/memory.py)")
+    p.add_argument("--residual-base", choices=["clim", "anom"], default="clim", help="--residual base: clim (default) or clim + shrunk 30-day "
+                   "anomaly median (needs --memory)")
+    p.add_argument("--anom-n0", type=float, default=3.0, help="--residual-base anom: shrinkage w = n / (n + n0)")
+    p.add_argument("--t3d-stem", choices=["conv", "attn", "patch", "tokdec"], default="conv", help="temporal3d stem: conv (Conv3d, default) or attn (per-pixel temporal "
+                   "attention, chl_cnn/tattn.py)")
+    p.add_argument("--attn-dim", type=int, default=32, help="--t3d-stem attn: token width (= stem output channels)")
+    p.add_argument("--attn-heads", type=int, default=4)
+    p.add_argument("--attn-layers", type=int, default=1, help="--t3d-stem attn: self-attention layers before the pooling")
+    p.add_argument("--attn-query-memory", action="store_true", help="--t3d-stem attn: condition the pooling query on the --memory channels")
+    p.add_argument("--ptok-patch", type=int, default=4, help="--t3d-stem patch: patch size P (px)")
+    p.add_argument("--ptok-dim", type=int, default=64, help="--t3d-stem patch: token width")
+    p.add_argument("--ptok-heads", type=int, default=4)
+    p.add_argument("--ptok-layers", type=int, default=2, help="--t3d-stem patch: self-attention layers over the days of each patch")
+    p.add_argument("--ptok-arm", choices=["interp", "pixq"], default="interp", help="--t3d-stem patch: per-pixel day-score arm")
+    p.add_argument("--ptok-value", choices=["own", "lavg"], default="own", help="--t3d-stem patch: context-day value at a pixel: own visible "
+                   "anomaly (default) or the Gaussian (sigma 1.5 px, r 5 px) normalised-convolution local average of the visible anomalies")
+    p.add_argument("--tokdec-dim", type=int, default=128, help="--t3d-stem tokdec: token width D")
+    p.add_argument("--tokdec-ch", type=int, default=32, help="--t3d-stem tokdec: decoded context channels C")
+    p.add_argument("--tokdec-heads", type=int, default=4, help="--t3d-stem tokdec: heads (self-attention and pooling)")
+    p.add_argument("--tokdec-layers", type=int, default=2, help="--t3d-stem tokdec: self-attention layers over the days of each patch")
+    p.add_argument("--tokdec-blend", action="store_true", help="--t3d-stem tokdec: add ptok's arm-A blend / mass / entropy channels (own-pixel skip)")
+    p.add_argument("--stoch", action="store_true", help="stochastic output: zero-initialised noise injection (chl_cnn/stoch.py), fair-CRPS loss")
+    p.add_argument("--stoch-ch", type=int, default=8, help="--stoch: noise channels")
+    p.add_argument("--stoch-train-samples", type=int, default=2, help="--stoch: samples per example in the fair-CRPS loss (>= 2)")
+    p.add_argument("--stoch-val-samples", type=int, default=4, help="--stoch: samples for the per-epoch val score (fair CRPS)")
+    p.add_argument("--stoch-final-samples", type=int, default=8, help="--stoch: samples for the final scoring (saved in samples.npz)")
+    p.add_argument("--leak-day", type=int, default=None, help="leak test (with --eval-only): store index t of a val day; ln CHL of day t+--leak-offset is "
+                   "shifted by --leak-delta on the pixels of --leak-what before anything is computed; the --memory channels of target t are saved")
+    p.add_argument("--leak-offset", type=int, default=0)
+    p.add_argument("--leak-delta", type=float, default=1.0)
+    p.add_argument("--leak-what", choices=["hidden", "observed", "masked"], default="hidden", help="hidden: day t's fixed hidden px (offset 0); observed: every observed px; "
+                   "masked: the observed px of day t+offset that the --context-clouds persist donor rule hides from target t (io3, 2026-10-23)")
+    # io5 input ablation (2026-10-24; chl_cnn/ablate.py; default off = unchanged)
+    p.add_argument("--ablate", default=None, choices=["sst", "so", "mlotst", "sla", "currents", "winds", "air_temp", "physics", "ctx_chl", "day_chl",
+                                                      "clim", "clim_static", "latlon", "depth", "year"],
+                   help="with --eval-only: replace one input group in the model inputs (chl_cnn/ablate.py)")
+    p.add_argument("--ablate-mode", choices=["mean", "doyclim"], default="mean", help="--ablate physics groups: training mean (0 in z) or the "
+                   "per-pixel DOY climatology of the training days (31-day window)")
+    # io6 learned kriging / spatial token attention (2026-10-24; chl_cnn/krig.py, chl_cnn/tokdec.py; default off = unchanged)
+    p.add_argument("--tokdec-krig", action="store_true", help="--t3d-stem tokdec: learned-kriging stem channels in place of the blend (chl_cnn/krig.py)")
+    p.add_argument("--krig-dim", type=int, default=32, help="--tokdec-krig: query / key width D")
+    p.add_argument("--krig-heads", type=int, default=4, help="--tokdec-krig: heads")
+    p.add_argument("--krig-dv", type=int, default=16, help="--tokdec-krig: value embedding / attention output channels")
+    p.add_argument("--krig-chunk", type=int, default=32, help="--tokdec-krig --krig-impl torch: stencil offsets per streamed chunk")
+    p.add_argument("--krig-signed", action="store_true", help="--tokdec-krig: + a signed head pair (difference of two softmaxes)")
+    p.add_argument("--krig-advect", action="store_true", help="--tokdec-krig: back-advected stencil centring (nearest neighbour, s fixed --krig-s0)")
+    p.add_argument("--krig-s0", type=float, default=0.25, help="--tokdec-krig: initial advected-offset scale s (and the fixed --krig-advect scale)")
+    p.add_argument("--krig-impl", choices=["triton", "torch"], default="triton", help="--tokdec-krig: fused Triton kernels or the PyTorch path")
+    p.add_argument("--krig-prec", choices=["tf32", "ieee", "tf32x3"], default="tf32", help="--krig-impl triton: tl.dot input precision")
+    p.add_argument("--tokdec-spatial", type=int, default=0, help="--t3d-stem tokdec: spatial self-attention blocks over the pooled patch tokens")
     a = p.parse_args(argv)
     if a.width is None:
         a.width = 32 if a.model == "unet" or (a.model == "temporal3d" and a.t3d_backbone == "unet") else 64
@@ -288,7 +446,73 @@ def parse(argv=None):
         p.error("--doy-input duplicates the sin/cos channels of --coords")
     if a.lag_max is None:
         a.lag_max = {"blk": 20.0, "blk4": 10.0}.get(a.store, 5.0)
+    if a.continue_weights_only and not a.continue_from:
+        p.error("--continue-weights-only needs --continue-from")
+    if (a.memory or a.t3d_stem != "conv" or a.stoch) and a.model != "temporal3d":
+        p.error("--memory / --t3d-stem attn / --stoch need --model temporal3d")
+    if a.residual_base != "clim" and not (a.memory and a.residual):
+        p.error("--residual-base anom needs --memory and --residual")
+    if a.t3d_stem in ("patch", "tokdec") and (a.memory or a.stoch or a.t3d_backbone != "dilated" or a.no_chl_input or a.no_chl_today or a.feat_today_only
+                                  or a.recipe != "none" or not a.clim):
+        p.error("--t3d-stem patch / tokdec: needs --clim and the dilated backbone; no --memory / --stoch / --no-chl-* / --feat-today-only / --recipe")
+    if a.tokdec_blend and a.t3d_stem != "tokdec":
+        p.error("--tokdec-blend needs --t3d-stem tokdec")
+    if (a.tokdec_krig or a.tokdec_spatial) and a.t3d_stem != "tokdec":
+        p.error("--tokdec-krig / --tokdec-spatial need --t3d-stem tokdec")
+    if a.tokdec_krig and a.tokdec_blend:
+        p.error("--tokdec-krig replaces --tokdec-blend; use one of them")
+    if (a.krig_signed or a.krig_advect) and not a.tokdec_krig:
+        p.error("--krig-signed / --krig-advect need --tokdec-krig")
+    if a.tokdec_krig and (a.context_before < 4 or a.context_after < 4 or a.krig_dim % a.krig_heads):
+        p.error("--tokdec-krig needs a window of at least t-4..t+4 and --krig-dim divisible by --krig-heads")
+    if a.attn_query_memory and not (a.memory and a.t3d_stem == "attn"):
+        p.error("--attn-query-memory needs --memory and --t3d-stem attn")
+    if a.stoch and (a.stoch_train_samples < 2 or a.recipe != "none"):
+        p.error("--stoch needs --stoch-train-samples >= 2 and no --recipe")
+    if a.no_select and a.sched == "plateau":
+        p.error("--no-select cannot drive --sched plateau (use --lr-replay)")
+    if a.ablate:
+        from .ablate import FEAT_GROUPS
+        if not a.eval_only or a.model != "temporal3d" or a.t3d_stem not in ("conv", "patch", "tokdec") or a.stoch or a.memory or a.recipe != "none":
+            p.error("--ablate needs --eval-only and --model temporal3d with --t3d-stem conv / patch / tokdec (no --stoch / --memory / --recipe)")
+        if a.ablate_mode == "doyclim" and a.ablate not in FEAT_GROUPS:
+            p.error("--ablate-mode doyclim applies to the physics groups only")
+        if a.ablate in FEAT_GROUPS and not set(FEAT_GROUPS[a.ablate]) <= set(a.features):
+            p.error(f"--ablate {a.ablate}: features {FEAT_GROUPS[a.ablate]} not all in --features")
+        need = {"clim": a.clim, "clim_static": a.clim, "latlon": a.coords, "depth": a.coords, "year": a.year_input}
+        if not need.get(a.ablate, True):
+            p.error(f"--ablate {a.ablate}: the model has no such channel")
+    if a.recipe == "up2024":
+        if a.store != "io_up" or a.fake_mask != "shift10" or a.context_clouds != "none":
+            p.error("--recipe up2024 needs --store io_up --fake-mask shift10 --context-clouds none")
+        if a.model not in ("dilated", "temporal3d") or (a.model == "temporal3d" and (a.context, a.feat_context, a.context_before, a.context_after) != (1, 1, 1, 1)):
+            p.error("--recipe up2024 supports --model dilated, or --model temporal3d with --context 1 --feat-context 1")
+        bad = [f for f in ("clim", "coords", "residual", "year_input", "doy_input", "land_input", "geo_static", "feat_today_only", "no_chl_input",
+                           "cloud_input", "no_chl_today", "src_clim", "src_ekman", "crop") if getattr(a, f)] + (["diff_fill"] if a.diff_fill else []) \
+            + (["grad_weight"] if a.grad_weight > 0 else [])
+        if bad:
+            p.error(f"--recipe up2024 takes only their 13 inputs and their loss; remove {bad}")
+        a.features = ["u_wind", "v_wind", "sst", "air_temp"]
+        a.batch, a.ckpt_from, a.wd, a.val_stride, a.loss = 4, 0, 0.0, 1, "mse"
+    rec = a.recipe == "up2024"                     # defaults that differ under the recipe (explicit values are kept)
+    a.epochs = a.epochs if a.epochs is not None else (50 if rec else 12)
+    a.patience = a.patience if a.patience is not None else (10 if rec else 100)
+    a.sched = a.sched if a.sched is not None else ("none" if rec else "cosine")
     return a
+
+
+def buffer_shuffle(x, buf, rng):
+    """tf.data Dataset.shuffle(buffer_size=buf) order of x: fill a buffer with the first buf items (in order), then repeatedly emit
+    a uniformly drawn buffer slot and refill it with the next item; once x is exhausted the emitted slot is removed."""
+    x = list(x); b = x[:buf]; i = len(b); out = []
+    while b:
+        k = int(rng.integers(len(b)))
+        out.append(b[k])
+        if i < len(x):
+            b[k] = x[i]; i += 1
+        else:
+            b[k] = b[-1]; b.pop()
+    return np.asarray(out)
 
 
 class EkmanSource(nn.Module):
@@ -314,11 +538,24 @@ class EkmanSource(nn.Module):
 RESUME_IGNORED = {"resume_best", "fig_every", "eval_batch"}
 # arguments added after --return: a resume.pt written before them is compared as if they had their default value
 RESUME_NEW_DEFAULTS = {"donor_exclude": 0, "eval_only": False, "init_from": None, "dilations": None, "continue_from": None, "geo_static": False,
-                       "fake_mask": "donor", "feat_today_only": False, "doy_input": False, "land_input": False}
+                       "fake_mask": "donor", "feat_today_only": False, "doy_input": False, "land_input": False, "recipe": "none",
+                       "plateau_factor": 0.5, "plateau_patience": 5, "min_lr": 1e-6,
+                       "continue_weights_only": False, "preds_f32": False, "train_on_val": False, "no_select": False, "lr_replay": None,
+                       "memory": False, "residual_base": "clim", "anom_n0": 3.0, "t3d_stem": "conv", "attn_dim": 32, "attn_heads": 4,
+                       "attn_layers": 1, "attn_query_memory": False, "ptok_patch": 4, "ptok_dim": 64, "ptok_heads": 4, "ptok_layers": 2,
+                       "ptok_arm": "interp", "ptok_value": "own",
+                       "tokdec_dim": 128, "tokdec_ch": 32, "tokdec_heads": 4, "tokdec_layers": 2, "tokdec_blend": False, "stoch": False, "stoch_ch": 8, "stoch_train_samples": 2,
+                       "stoch_val_samples": 4, "stoch_final_samples": 8,
+                       "leak_day": None, "leak_offset": 0, "leak_delta": 1.0, "leak_what": "hidden", "ablate": None, "ablate_mode": "mean",
+                       "tokdec_krig": False, "krig_dim": 32, "krig_heads": 4, "krig_dv": 16, "krig_chunk": 32, "krig_signed": False,
+                       "krig_advect": False, "krig_s0": 0.25, "krig_impl": "triton", "krig_prec": "tf32", "tokdec_spatial": 0}
 
 
 def main(argv=None):
     a = parse(argv)
+    STOCH = None
+    if a.stoch:
+        from . import stoch as STOCH
     torch.manual_seed(a.seed)
     rng = np.random.default_rng(a.seed)
     dev = torch.device("cuda")
@@ -356,15 +593,23 @@ def main(argv=None):
     ocean = d["ocean"][ys, xs]
     H, W = ocean.shape
     tr, va, te = D.split_by_years(TIMES, val_years, test_years) if a.store != "io_up" else SU.split_up(TIMES)
+    recipe = a.recipe == "up2024"
+    if recipe:
+        tr, va, te = SU.split_up2024(TIMES)                   # their inclusive train slice (adds 2018-01-01)
+    if a.train_on_val:                                         # final fit: val days join the training days (val scores are in-sample)
+        tr = np.sort(np.r_[tr, va])
+        print(f"train-on-val: {len(tr)} training days (train + val); val scores below are in-sample", flush=True)
     y = D.log_chl(rd("chl_l3"))
     obs = np.isfinite(y) & ocean
     obs_frac = obs.reshape(n, -1).sum(1) / ocean.sum()
     chl_mu, chl_sd = float(np.nanmean(y[tr])), float(np.nanstd(y[tr]))
+    if recipe:                                                 # their label z-score over all 9193 records (up_norm.json)
+        chl_mu, chl_sd = float(d["up"]["label_mean"]), float(d["up"]["label_std"])
     print(f"store {a.store}: {n} days  train {len(tr)} val {len(va)} test {len(te)}  grid {H} x {W}  ocean px {int(ocean.sum())}  "
           f"val years {val_years} test years {test_years}", flush=True)
 
     if a.fake_mask == "shift10":     # their fixed mask (store_io_up.py): finite L3 at t & cloud code 0 at record t+10; donor unused
-        HUP = rd("hidden_up") & obs
+        HUP = rd("hidden_up") if recipe else rd("hidden_up") & obs      # recipe: their mask without the ocean cut
         print(f"shift10 mask: their hidden px outside our ocean mask (dropped): val {int((rd('hidden_up', va) & ~ocean).sum())} "
               f"test {int((rd('hidden_up', te) & ~ocean).sum())} train {int((rd('hidden_up', tr) & ~ocean).sum())}", flush=True)
         hid_va, don_va, hid_te, don_te = HUP[va], va.copy(), HUP[te], te.copy()
@@ -397,8 +642,32 @@ def main(argv=None):
                 x = (rd(sname(f), slice(b0, b0 + 500)).astype("float32") - mu) / sd
                 Xg[b0:b0 + 500, c] = torch.as_tensor(np.nan_to_num(x, nan=0.0), device=dev).half()
     Yg, OBSg, HIDg, DONg = torch.nan_to_num(T(y), nan=0.0), T(obs), T(hidden), T(donor)
+    if a.leak_day is not None:                                 # leak test: perturb the input copy of ln CHL only (scores use the numpy y)
+        assert a.eval_only and a.leak_day in set(va.tolist()), "--leak-day needs --eval-only and a val day"
+        jl = int(T2.neighbour_index(TIMES, a.leak_offset)[a.leak_day]) if a.leak_offset else a.leak_day
+        assert jl >= 0, "--leak-offset day not in the store"
+        if a.leak_what == "masked":                            # obs on t+k but not visible under the donor's day d+k (persist rule)
+            dn = int(donor[a.leak_day]); jd = int(T2.neighbour_index(TIMES, a.leak_offset)[dn]) if a.leak_offset else dn
+            pm = T(obs[jl] & ~obs[jd if jd >= 0 else dn])
+        else:
+            pm = T(hidden[a.leak_day]) if a.leak_what == "hidden" else OBSg[jl]
+        Yg[jl] = Yg[jl] + a.leak_delta * pm
+        print(f"LEAK TEST: day {str(TIMES[jl])[:10]} (t{a.leak_offset:+d}, t = {str(TIMES[a.leak_day])[:10]}): ln CHL + {a.leak_delta} on "
+              f"{int(pm.sum())} {a.leak_what} px", flush=True)
     chl_z = lambda idx: (Yg[idx] - chl_mu) / chl_sd * OBSg[idx]      # z-scored observed ln CHL (0 where unobserved), per batch
     OCEANg = T(ocean)
+    if recipe:                                                 # their 13 channels (store_io_up.recipe_up2024) and target z on the GPU, float32
+        REC = SU.recipe_up2024(d)
+        RXg, RYg = T(REC["X"]), T(REC["Y"])
+        assert REC["X"].shape[1] == 13 and np.array_equal(REC["masked"], HUP) and REC["checks"]["fake_ne_hidden_px"] == 0
+        recipe_info = dict(channels=SU.UP24_CHANNELS, stats=REC["stats"], checks=REC["checks"], n_train=len(tr),
+                           train_first=str(TIMES[tr[0]])[:10], train_last=str(TIMES[tr[-1]])[:10], target_mean=chl_mu, target_std=chl_sd,
+                           zero_pred_allpx=dict({f"{nm}_mae": float(np.abs(REC["Y"][ix]).mean()) for nm, ix in (("val", va), ("test", te))},
+                                                **{f"{nm}_mse": float((REC["Y"][ix].astype("float64") ** 2).mean()) for nm, ix in (("val", va), ("test", te))}))
+        del REC
+        print(f"recipe up2024: 13 input channels {SU.UP24_CHANNELS}; train {recipe_info['train_first']}..{recipe_info['train_last']} ({len(tr)} days); "
+              f"target z mean {chl_mu:.4f} std {chl_sd:.4f}; all-zero prediction all-px z: {json.dumps(recipe_info['zero_pred_allpx'])}", flush=True)
+        R3_DAY, R3_PREV, R3_NEXT, R3_STATIC = [0, 1, 2, 3, 6, 10, 11, 12], 7, 8, [4, 5, 9]
 
     # physics inputs: raw currents in index space (cells per day), their validity, stencil mask
     lat, lon = d["lat"][ys].astype("float64"), d["lon"][xs].astype("float64")
@@ -493,8 +762,20 @@ def main(argv=None):
     in_ch = len(a.features) * (1 + len(foffs)) + (n_chl_t + n_mask_t) + (n_chl + n_mask) * len(offsets) + (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0) + n_geo + n_up
     if a.model == "temporal3d":   # per-day channels [F features, CHL value, visible mask] x T days; static 2D channels after the stem
         c_day, n_days = len(a.features) + 2, len(win_offs)
-        n_static = (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0) + n_geo + n_up
-        in_ch = a.t3d_width + n_static                          # backbone input channels
+        n_static = (1 if a.clim else 0) + (5 if a.coords else 0) + (1 if a.year_input else 0) + n_geo + n_up + (MEM.N_CH if a.memory else 0)
+        in_ch = (a.attn_dim if a.t3d_stem == "attn" else a.t3d_width) + n_static   # backbone input channels
+        if a.t3d_stem == "patch":                              # blend, weight mass, entropy + day t's own channels + static
+            in_ch = 3 + c_day + n_static
+        if a.t3d_stem == "tokdec":                             # decoded context channels (+ blend, mass, entropy) + day t's own + static
+            in_ch = a.tokdec_ch + (3 if a.tokdec_blend else 0) + c_day + n_static
+            if a.tokdec_krig:                                  # io6: kriging channels (attention output, estimate, spread, mass, entropy [, signed 3])
+                in_ch += a.krig_dv + 4 + (3 if a.krig_signed else 0)
+    if recipe:
+        if a.model == "temporal3d":
+            c_day, n_days, n_static = 8, 3, 3
+            in_ch = a.t3d_width + n_static
+        else:
+            in_ch = 13
     YEARg = T(((np.asarray(TIMES).astype("datetime64[Y]").astype(int) + 1970 - 2009) / 7.0).astype("float32"))
     if a.diff_fill:
         in_ch += 1
@@ -529,6 +810,94 @@ def main(argv=None):
             return SN.steady_state(fill_grid, Dc, wsum, tsum / wsum, Yg[bi] * vis, free, tol=1e-5, maxiter=300)
     no_chl_t = a.no_chl_input or a.no_chl_today
 
+    # ---- io5 input ablation (--ablate; chl_cnn/ablate.py): replacement values, applied by ablate_inputs in predict_z
+    ABL_INFO = {}
+    if a.ablate:
+        from . import ablate as AB
+        ab_ti = win_offs.index(0)
+        ab_fn = AB.FEAT_GROUPS.get(a.ablate, [])
+        ab_f = [a.features.index(f) for f in ab_fn]
+        cs = 1 if a.clim else 0                                # static layout: [clim] [lat, lon, depth, sin doy, cos doy] [year] ...
+        ab_s, ab_const = [], []
+        if a.ablate in ("clim", "clim_static"):                # mean over ocean px of the training days, in the z units the model sees
+            zc = (clim_np.astype("float64") - chl_mu) / chl_sd
+            wb = np.bincount(doy_bin[tr], minlength=len(zc)).astype("float64")
+            ab_s, ab_const = [0], [float((wb[:, None] * zc[:, ocean]).sum() / (wb.sum() * ocean.sum()))]
+        elif a.ablate == "latlon":
+            ab_s, ab_const = [cs, cs + 1], [float(stat[0][ocean].mean()), float(stat[1][ocean].mean())]
+        elif a.ablate == "depth":
+            ab_s, ab_const = [cs + 2], [float(stat[2][ocean].mean())]
+        elif a.ablate == "year":
+            ab_s, ab_const = [cs + (5 if a.coords else 0)], [float(YEARg.cpu().numpy().astype("float64")[tr].mean())]
+        if a.ablate_mode == "doyclim":
+            ab_dc = AB.build_doyclim(lambda f, idx: rd(sname(f), idx), ab_fn, tr, TIMES)
+            assert all(ab_dc[f].shape == (366, H, W) for f in ab_fn), "doyclim cache grid differs from this store"
+            DCZg = torch.as_tensor(np.stack([np.nan_to_num((ab_dc[f] - feat_stats[f]["mean"]) / feat_stats[f]["std"], nan=0.0) for f in ab_fn], 1)
+                                   .astype("float32"), device=dev).half()               # (366, nf, H, W), z-scored as the feature store
+            DOYIg = T(AB.doy_of(TIMES))
+        ABL_INFO.update(group=a.ablate, mode=a.ablate_mode, features=ab_fn, feature_idx=ab_f, static_idx=ab_s, const=ab_const, t_index=ab_ti)
+        print(f"ABLATE {a.ablate} ({a.ablate_mode}): features {ab_fn} static channels {ab_s} -> {ab_const}", flush=True)
+
+    def ablate_inputs(bi, x3d, xs, cw):
+        """--ablate: copies of the model inputs x3d (B, c_day, T, H, W), xs (B, n_static, H, W), cw (B, T, H, W) or None with one input
+        group replaced (chl_cnn/ablate.py). The first call checks the result against the originals (ABL_INFO["check"])."""
+        x0, s0, c0 = x3d, xs, cw
+        x3d = x3d.clone(); xs = xs.clone(); cw = cw.clone() if cw is not None else None
+        if ab_f:
+            if a.ablate_mode == "mean":
+                x3d[:, ab_f] = 0.0
+            else:
+                for kk, k in enumerate(win_offs):
+                    j = bi if k == 0 else NBF[k][bi]
+                    x3d[:, ab_f, kk] = DCZg[DOYIg[j.clamp(min=0)]].float() * (j >= 0).view(-1, 1, 1, 1).float()
+        elif a.ablate == "ctx_chl":
+            x3d[:, -2:, [kk for kk, k in enumerate(win_offs) if k != 0]] = 0.0
+        elif a.ablate == "day_chl":
+            x3d[:, -2:, ab_ti] = 0.0
+        else:
+            for c, v in zip(ab_s, ab_const):
+                xs[:, c] = v
+            if a.ablate == "clim" and cw is not None:
+                cw[:] = ab_const[0]
+        if "check" not in ABL_INFO:
+            ABL_INFO["check"] = ablate_check(bi, x0, s0, c0, x3d, xs, cw)
+        return x3d, xs, cw
+
+    def ablate_check(bi, x0, s0, c0, x1, s1, c1):
+        """Ablated slots hold the replacement; every other input value is unchanged (exact)."""
+        C_, T_ = x0.shape[1], x0.shape[2]
+        slot = torch.zeros((C_, T_), dtype=torch.bool, device=dev)
+        if ab_f:
+            slot[ab_f] = True
+        elif a.ablate == "ctx_chl":
+            slot[-2:] = True; slot[-2:, ab_ti] = False
+        elif a.ablate == "day_chl":
+            slot[-2:, ab_ti] = True
+        sch = torch.zeros(s0.shape[1], dtype=torch.bool, device=dev); sch[ab_s] = True
+        ok_x = bool(torch.equal(x1[:, ~slot], x0[:, ~slot])); ok_s = bool(torch.equal(s1[:, ~sch], s0[:, ~sch]))
+        clim_cw = a.ablate == "clim" and c0 is not None
+        ok_c = True if c0 is None else bool(torch.equal(c1, torch.full_like(c0, ab_const[0]) if clim_cw else c0))
+        if ab_f and a.ablate_mode == "doyclim":                # independent reference for every batch sample and window day
+            ref = np.zeros((len(bi), len(ab_f), T_, H, W), dtype="float32"); doy = AB.doy_of(TIMES)
+            for kk, k in enumerate(win_offs):
+                js = bi.cpu().numpy() if k == 0 else NBF[k][bi].cpu().numpy()
+                for i, j in enumerate(js):
+                    if j >= 0:
+                        ref[i, :, kk] = np.stack([np.nan_to_num((ab_dc[f][doy[j]] - feat_stats[f]["mean"]) / feat_stats[f]["std"], nan=0.0)
+                                                  for f in ab_fn]).astype("float32").astype("float16").astype("float32")
+            ok_r = bool(np.array_equal(x1[:, ab_f].cpu().numpy(), ref))
+        elif ab_f or a.ablate in AB.CHL_GROUPS:
+            ok_r = bool((x1[:, slot] == 0).all())
+        else:
+            ok_r = all(bool((s1[:, c] == v).all()) for c, v in zip(ab_s, ab_const))
+        changed = float((x1[:, slot] != x0[:, slot]).float().mean()) if slot.any() else float((s1[:, sch] != s0[:, sch]).float().mean())
+        chk = dict(batch_days=[str(TIMES[i])[:10] for i in bi.cpu().numpy()[:3]], n_slots=int(slot.sum()), unchanged_x3d=ok_x, unchanged_static=ok_s,
+                   clim3d_ok=ok_c, replacement_ok=ok_r, frac_values_changed_in_ablated_slots=changed, passed=ok_x and ok_s and ok_c and ok_r)
+        print(f"ABLATE check (first batch): {json.dumps(chk)}", flush=True)
+        if not chk["passed"]:
+            raise SystemExit(f"--ablate check failed: {chk}")
+        return chk
+
     # ---- priors
     prior_info = {}
     if a.src_clim:   # d/dt of the 8-day-bin climatology, central difference over bins, ln CHL per day
@@ -552,6 +921,12 @@ def main(argv=None):
     else:
         PWg = torch.ones((H, W), device=dev)
     print("priors:", json.dumps(prior_info), flush=True)
+
+    MEMLAST = {}                                               # --memory: last batch's anomaly / count (for --residual-base anom)
+    if a.memory:
+        memory = MEM.Memory(TIMES, OBSg, DONg, chl_z, clim_z=(lambda j: CLIMg[BINg[j]]) if a.clim else None, dev=dev)
+        print(f"memory: {MEM.N_CH} channels (last/next valid obs outside +-4 d up to {memory.max_age} d with age, 8-/30-day medians with counts; "
+              f"donor-masked); residual base {a.residual_base}" + (f" (shrinkage n / (n + {a.anom_n0}))" if a.residual_base == "anom" else ""), flush=True)
 
     def nb_masks(bi, k):
         """Neighbour day index, its validity, and the mask of its pixels visible in the input."""
@@ -612,6 +987,13 @@ def main(argv=None):
         if a.geo_static:
             ch.append(GEOg.unsqueeze(0).expand(len(bi), -1, -1, -1))
         up_static(ch, bi)
+        if a.memory:                                           # memory channels last (--attn-query-memory reads the last MEM.N_CH)
+            if a.residual_base == "anom":
+                mc, an, cn = memory(bi, want_anom=True)
+                MEMLAST.update(anom=an * (cn / (cn + a.anom_n0)))
+            else:
+                mc = memory(bi)
+            ch.append(mc)
         return torch.cat(ch, 1) if ch else None
 
     def make_inputs_3d(bi, hid):
@@ -650,8 +1032,35 @@ def main(argv=None):
 
     def predict_z(model, bi, hid, deq_steps=None):
         """(B, 3, H, W) z-scored ln CHL for days t-1, t, t+1."""
+        if recipe:
+            x = RXg[bi]
+            if a.model == "temporal3d":
+                z0 = torch.zeros((len(bi), 8, H, W), device=dev)
+                prev_, next_ = z0.clone(), z0.clone()
+                prev_[:, 4] = x[:, R3_PREV]; next_[:, 4] = x[:, R3_NEXT]
+                return model(torch.stack([prev_, x[:, R3_DAY], next_], 2), x[:, R3_STATIC])
+            if channels_last:
+                x = x.contiguous(memory_format=torch.channels_last)
+            return model(x)
         if a.model == "temporal3d":
-            z = model(*make_inputs_3d(bi, hid))
+            if a.stoch:                                        # point prediction of the stochastic model: median of samples (fixed noise)
+                return sample_median(predict_samples(model, bi, hid, a.stoch_val_samples, gen=fixed_gen()).float())
+            if a.t3d_stem in ("patch", "tokdec"):
+                x3d, xs = make_inputs_3d(bi, hid)
+                if a.ablate:                                   # io5: one input group replaced on every input path (x3d, static, clim3d)
+                    x3d, xs, cw = ablate_inputs(bi, x3d, xs, clim_window(bi))
+                    z = model(x3d, xs, day_ok(bi), cw)
+                else:
+                    z = model(x3d, xs, day_ok(bi), clim_window(bi))
+            elif a.t3d_stem == "attn":
+                x3d, xs = make_inputs_3d(bi, hid)
+                z = model(x3d, xs, day_ok(bi), xs[:, -MEM.N_CH:] if a.attn_query_memory else None)
+            elif a.ablate:                                     # io5 ablation, conv stem: x3d and the static channels
+                x3d, xs = make_inputs_3d(bi, hid)
+                x3d, xs, _ = ablate_inputs(bi, x3d, xs, None)
+                z = model(x3d, xs)
+            else:
+                z = model(*make_inputs_3d(bi, hid))
         else:
             x = make_inputs(bi, hid)
             if a.model == "deq":
@@ -661,10 +1070,39 @@ def main(argv=None):
             if channels_last:
                 x = x.contiguous(memory_format=torch.channels_last)
             z = model(x)
+        return add_base(z, bi)
+
+    def add_base(z, bi):
+        """--residual: + DOY climatology of t-1, t, t+1 (+ the shrunk 30-day anomaly with --residual-base anom); z (..., 3, H, W)."""
         if a.residual:
             jm, _, _ = nb_masks(bi, -1); jp, _, _ = nb_masks(bi, 1)
             z = z + torch.stack([CLIMg[BINg[jm]], CLIMg[BINg[bi]], CLIMg[BINg[jp]]], 1)
+            if a.residual_base == "anom":                      # set by static_inputs for this batch
+                z = z + MEMLAST["anom"].unsqueeze(1)
         return z
+
+    def clim_window(bi):
+        """(B, T, H, W) DOY climatology z of each window day (day t's for days missing from the store)."""
+        return torch.stack([CLIMg[BINg[bi]] if k == 0 else CLIMg[BINg[torch.where(NBF[k][bi] >= 0, NBF[k][bi], bi)]] for k in win_offs], 1)
+
+    def day_ok(bi):
+        """(B, T) bool: window day t+k is in the store (always true for k = 0)."""
+        return torch.stack([torch.ones(len(bi), dtype=torch.bool, device=dev) if k == 0 else NBF[k][bi] >= 0 for k in win_offs], 1)
+
+    def sample_median(X):
+        """Median over the sample axis 0 (mean of the two middle values for an even count)."""
+        v = X.sort(0).values; M = X.shape[0]
+        return v[M // 2] if M % 2 else 0.5 * (v[M // 2 - 1] + v[M // 2])
+
+    def fixed_gen():
+        g = torch.Generator(device=dev); g.manual_seed(12345)
+        return g
+
+    def predict_samples(model, bi, hid, M, gen=None):
+        """--stoch: (M, B, 3, H, W) z-scored samples for days t-1, t, t+1 (one stem pass, M noisy backbone passes)."""
+        h = model.features(*make_inputs_3d(bi, hid))
+        zs = [model.head(h, torch.randn((len(bi), a.stoch_ch, H, W), device=dev, generator=gen)) for _ in range(M)]
+        return add_base(torch.stack(zs, 0), bi)
 
     def pixel_loss(pz, yz):
         e = pz - yz
@@ -688,8 +1126,16 @@ def main(argv=None):
             tot = tot + ((dp - dy_).abs() * m).sum(); cnt = cnt + m.sum()
         return tot, cnt
 
+    LOSS_PRINTED = []
+
     def data_loss(pz, bi, hid):
         """Weighted hidden-pixel loss over the three output days (z units), plus the gradient-difference term."""
+        if recipe:                                              # their loss: MSE in z over every pixel of day t (target NaN -> 0)
+            if not LOSS_PRINTED:
+                LOSS_PRINTED.append(1)
+                print(f"recipe loss check: batch {len(bi)}, loss px per sample {pz[:, 1].numel() // len(bi)} (frame {H} x {W}), "
+                      f"target z in this batch: mean {RYg[bi].mean().item():.4f}, finite-target px {int((RYg[bi] != 0).sum())}", flush=True)
+            return ((pz[:, 1] - RYg[bi]) ** 2).mean()
         w = OBSg[bi].float() if no_chl_t else hid.float() + a.vis_weight * (OBSg[bi] & ~hid).float()
         num = (pixel_loss(pz[:, 1], (Yg[bi] - chl_mu) / chl_sd) * w).sum(); den = w.sum()
         if a.grad_weight > 0:
@@ -702,6 +1148,30 @@ def main(argv=None):
             hk = (OBSg[j] & ok) if a.no_chl_input else (OBSg[j] & ok & ~m)
             wk = a.nb_weight * hk.float()
             num = num + (pixel_loss(pz[:, c], (Yg[j] - chl_mu) / chl_sd) * wk).sum(); den = den + wk.sum()
+        return num / den.clamp(min=1)
+
+    def data_loss_stoch(PZ, bi, hid):
+        """--stoch: data_loss with the fair CRPS of the M samples PZ (M, B, 3, H, W) in place of |error|, on the same pixels and weights
+        (hidden + --vis-weight x visible on day t, the t+-1 heads), and on the gradient-difference pairs of day t (same --grad-weight and
+        normalisation as grad_terms)."""
+        yz = (Yg[bi] - chl_mu) / chl_sd; ob = OBSg[bi]
+        w = hid.float() + a.vis_weight * (ob & ~hid).float()
+        num = (STOCH.fair_crps(PZ[:, :, 1], yz) * w).sum(); den = w.sum()
+        if a.grad_weight > 0:
+            gs, gc = 0.0, 0.0
+            for ax in (-1, -2):
+                dP = torch.diff(PZ[:, :, 1], dim=ax); dy_ = torch.diff(yz, dim=ax)
+                ok = torch.narrow(ob, ax, 0, ob.shape[ax] - 1) & torch.narrow(ob, ax, 1, ob.shape[ax] - 1)
+                hh = torch.narrow(hid, ax, 0, hid.shape[ax] - 1) | torch.narrow(hid, ax, 1, hid.shape[ax] - 1)
+                m = (ok & hh).float()
+                gs = gs + (STOCH.fair_crps(dP, dy_) * m).sum(); gc = gc + m.sum()
+            num = num + a.grad_weight * gs * (den / gc.clamp(min=1))
+        for c, k in [(0, -1), (2, 1)]:
+            if k not in win_offs:
+                continue
+            j, ok, m = nb_masks(bi, k)
+            wk = a.nb_weight * (OBSg[j] & ok & ~m).float()
+            num = num + (STOCH.fair_crps(PZ[:, :, c], (Yg[j] - chl_mu) / chl_sd) * wk).sum(); den = den + wk.sum()
         return num / den.clamp(min=1)
 
     def source_term(bi):
@@ -766,10 +1236,59 @@ def main(argv=None):
         model = DQ.DEQ(cell, solver=a.deq_solver, steps=a.deq_steps, tol=a.deq_tol, grad="phantom", phantom_steps=a.deq_phantom_steps,
                        phantom_tau=a.deq_phantom_tau, anderson_m=a.deq_anderson_m, anderson_beta=a.deq_anderson_beta, checkpoint=a.deq_ckpt).to(dev)
         print(f"deq: solver {a.deq_solver} steps {a.deq_steps} tol {a.deq_tol} phantom {a.deq_phantom_steps} x tau {a.deq_phantom_tau}  cell dilations {a.cell_dilations} eta {a.deq_eta}  project {not a.deq_no_project}  spectral {a.deq_spectral}  ckpt {a.deq_ckpt}", flush=True)
+    elif a.model == "temporal3d" and a.t3d_stem == "patch":
+        from .ptok import PatchTokenNet
+        model = PatchTokenNet(c_day, n_static, n_days, win_offs.index(0), T(ocean), P=a.ptok_patch, dim=a.ptok_dim, heads=a.ptok_heads,
+                              layers=a.ptok_layers, arm=a.ptok_arm, value=a.ptok_value, sst_index=a.features.index("sst"), backbone=a.t3d_backbone, width=a.width,
+                              dropout=a.dropout, out_channels=3, dilations=dilations).to(dev)
+        n_bb = count_params(model.backbone)
+        print(f"patch-token stem: {n_days} days, P {a.ptok_patch} -> {model.Np} ocean patches of {model.nPy} x {model.nPx}, dim {a.ptok_dim}, "
+              f"heads {a.ptok_heads}, layers {a.ptok_layers}, arm {a.ptok_arm}, value {a.ptok_value} -> {in_ch} ch -> dilated backbone (width {a.width}, FiLM on block 1)  "
+              f"stem params {count_params(model) - n_bb}, backbone {n_bb}", flush=True)
+    elif a.model == "temporal3d" and a.t3d_stem == "tokdec":
+        from .tokdec import TokDecNet
+        if a.tokdec_krig:                                      # io6: TokDecNet (blend off) + the learned-kriging stem (chl_cnn/krig.py)
+            from . import krig as KRIG
+            from . import krig_triton as KRIGT
+            KRIGT.CFG["PREC"] = a.krig_prec
+            fi = a.features.index
+            vel = dict(mu_u=feat_stats["u_curr"]["mean"], sd_u=feat_stats["u_curr"]["std"], mu_v=feat_stats["v_curr"]["mean"],
+                       sd_v=feat_stats["v_curr"]["std"], dx=torch.as_tensor(np.broadcast_to(dx, (H, W)).astype("float32")),
+                       dy=torch.as_tensor(np.broadcast_to(dy, (H, W)).astype("float32")))
+            krig_kw = dict(sst_index=fi("sst"), sss_index=fi("so"), u_index=fi("u_curr"), v_index=fi("v_curr"), vel=vel, dim=a.krig_dim,
+                           heads=a.krig_heads, dv=a.krig_dv, chunk=a.krig_chunk, signed=a.krig_signed, advect=a.krig_advect, s0=a.krig_s0,
+                           impl=a.krig_impl)
+            model = KRIG.build_krig_tokdec(c_day, n_static, n_days, win_offs.index(0), T(ocean), krig_kw, P=a.ptok_patch, dim=a.tokdec_dim,
+                                           ch=a.tokdec_ch, heads=a.tokdec_heads, layers=a.tokdec_layers, sst_index=fi("sst"),
+                                           spatial=a.tokdec_spatial, backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3,
+                                           dilations=dilations).to(dev)
+            print(f"kriging stem: {model.krig.K} stencil offsets (|dt| <= 4), D {a.krig_dim}, heads {a.krig_heads}{' + signed pair' if a.krig_signed else ''}, "
+                  f"dv {a.krig_dv}, {model.krig.n_out} channels, advect {a.krig_advect}, impl {model.krig.impl} ({a.krig_prec}), "
+                  f"{model.krig.N} ocean px; kriging params {count_params(model.krig)}", flush=True)
+        else:
+            model = TokDecNet(c_day, n_static, n_days, win_offs.index(0), T(ocean), P=a.ptok_patch, dim=a.tokdec_dim, ch=a.tokdec_ch,
+                              heads=a.tokdec_heads, layers=a.tokdec_layers, blend=a.tokdec_blend, sst_index=a.features.index("sst"),
+                              backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3, dilations=dilations,
+                              **(dict(spatial=a.tokdec_spatial) if a.tokdec_spatial else {})).to(dev)
+        n_bb = count_params(model.backbone)
+        print(f"token-decoder stem: {n_days} days, P {a.ptok_patch} -> {model.Np} ocean patches of {model.nPy} x {model.nPx}, dim {a.tokdec_dim}, "
+              f"heads {a.tokdec_heads}, layers {a.tokdec_layers}, decoded ch {a.tokdec_ch}, blend {a.tokdec_blend}"
+              f"{f', spatial blocks {a.tokdec_spatial}' if a.tokdec_spatial else ''}{', kriging' if a.tokdec_krig else ''} -> {in_ch} ch -> dilated backbone "
+              f"(width {a.width})  stem params {count_params(model) - n_bb}, backbone {n_bb}", flush=True)
+    elif a.model == "temporal3d" and a.t3d_stem == "attn":
+        from .tattn import TemporalAttnNet
+        model = TemporalAttnNet(c_day, n_static, n_days, win_offs.index(0), backbone=a.t3d_backbone, stem_width=a.attn_dim, heads=a.attn_heads,
+                                layers=a.attn_layers, q_extra=(MEM.N_CH if a.attn_query_memory else 0), width=a.width, dropout=a.dropout, out_channels=3,
+                                depth=a.unet_depth, spectral=a.spectral, modes=a.spectral_modes, spec_ch=a.spectral_ch, dilations=dilations).to(dev)
+        print(f"temporal attention stem: {n_days} days x {c_day} channels/day, width {a.attn_dim}, heads {a.attn_heads}, layers {a.attn_layers}, "
+              f"query memory {a.attn_query_memory} -> {a.attn_dim} + {n_static} static -> {a.t3d_backbone} backbone (width {a.width})  "
+              f"stem params {count_params(model.stem)}", flush=True)
     elif a.model == "temporal3d":
-        model = Temporal3DNet(c_day, n_static, n_days, backbone=a.t3d_backbone, stem_width=a.t3d_width, stem_depth=a.t3d_depth, kt=a.t3d_kernel_t,
-                              width=a.width, dropout=a.dropout, out_channels=3, depth=a.unet_depth,
-                              spectral=a.spectral, modes=a.spectral_modes, spec_ch=a.spectral_ch, dilations=dilations).to(dev)
+        T3D = STOCH.StochTemporal3DNet if a.stoch else Temporal3DNet
+        model = T3D(c_day, n_static, n_days, backbone=a.t3d_backbone, stem_width=a.t3d_width, stem_depth=a.t3d_depth, kt=a.t3d_kernel_t,
+                    width=a.width, dropout=a.dropout, out_channels=3, depth=a.unet_depth,
+                    spectral=a.spectral, modes=a.spectral_modes, spec_ch=a.spectral_ch, dilations=dilations,
+                    **(dict(noise_ch=a.stoch_ch) if a.stoch else {})).to(dev)
         print(f"temporal3d: stem {a.t3d_depth} x Conv3d({a.t3d_width}, kernel ({a.t3d_kernel_t},3,3)) on {c_day} channels/day x {n_days} days, "
               f"collapse ({n_days},1,1) -> {a.t3d_width} + {n_static} static -> {a.t3d_backbone} backbone (width {a.width})  "
               f"stem params {count_params(model.stem)}", flush=True)
@@ -780,8 +1299,14 @@ def main(argv=None):
     if channels_last:
         model = model.to(memory_format=torch.channels_last)
     params = list(model.parameters()) + (list(src_ekman.parameters()) if a.src_ekman else [])
-    opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=a.wd)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.epochs) if a.sched == "cosine" else None
+    opt = torch.optim.Adam(params, lr=a.lr, eps=1e-7) if recipe else torch.optim.AdamW(params, lr=a.lr, weight_decay=a.wd)
+    def make_sched():
+        if a.sched == "cosine":
+            return torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.epochs)
+        if a.sched == "plateau":                               # stepped with the model-selection score after each val pass
+            return torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="min", factor=a.plateau_factor, patience=a.plateau_patience, min_lr=a.min_lr)
+        return None
+    sched = make_sched()
     scaler = torch.amp.GradScaler(enabled=not a.no_amp)
     print(f"model {a.model} in_ch {in_ch} params {count_params(model)}  residual pixels/day (stencil) {int(st.sum())}", flush=True)
 
@@ -789,6 +1314,11 @@ def main(argv=None):
 
     def lam_at(ep):
         return a.lam * min(1.0, (ep + 1) / max(a.phys_warmup, 1))
+
+    def restore_val_masks():
+        """--train-on-val: training donors overwrite the val days' hidden masks each epoch; put the fixed val set back before scoring."""
+        if a.train_on_val:
+            HIDg[T(va)] = T(hid_va); DONg[T(va)] = T(don_va)
 
     def train_epoch(ep):
         model.train()
@@ -803,15 +1333,22 @@ def main(argv=None):
             HIDg[T(tr)] = T(obs[tr] & ~obs[donors]); DONg[T(tr)] = T(donors)
         lam = lam_at(ep)
         td = tp = 0.0; cnt = 0; dq_it = dq_res = 0.0; dq_n = 0
-        order = T(rng.permutation(tr))
+        order = T(buffer_shuffle(tr, 512, rng) if recipe else rng.permutation(tr))
         for nb_, b in enumerate(range(0, len(tr), a.batch)):
             if a.max_batches and nb_ >= a.max_batches:
                 break
             bi = order[b:b + a.batch]; hid = HIDg[bi]
             with torch.autocast("cuda", enabled=not a.no_amp):
-                pz = predict_z(model, bi, hid)
-            pz = pz.float()
-            ld = data_loss(pz, bi, hid)
+                if a.stoch:
+                    PZ = predict_samples(model, bi, hid, a.stoch_train_samples)
+                else:
+                    pz = predict_z(model, bi, hid)
+            if a.stoch:                                        # fair CRPS over M samples; the residual diagnostic uses sample 0
+                PZ = PZ.float(); pz = PZ[0]
+                ld = data_loss_stoch(PZ, bi, hid)
+            else:
+                pz = pz.float()
+                ld = data_loss(pz, bi, hid)
             r, _, valid = transport_residual(pz, bi, hid)
             lp = phys_loss(r, valid)
             loss = ld + lam * lp
@@ -825,23 +1362,40 @@ def main(argv=None):
         return td / cnt, tp / cnt, lam
 
     @torch.no_grad()
-    def residual_stats(idx, collect_preds=None):
-        """Hidden-pixel MAE (ln CHL) on day t; unweighted mean|r| and mean|r_base| under real clouds / observed."""
+    def residual_stats(idx, collect_preds=None, collect_samples=None):
+        """Hidden-pixel MAE (ln CHL) on day t; unweighted mean|r| and mean|r_base| under real clouds / observed.
+        --stoch: the point prediction is the median of K samples (K = --stoch-final-samples when collect_samples is given, else
+        --stoch-val-samples; fixed noise seed), and the fair CRPS of the samples on the hidden pixels is returned as "crps" (ln CHL)."""
         model.eval()
-        acc = dict(err=0.0, sq=0.0, cnt=0.0, rc=0.0, nc=0.0, ro=0.0, no=0.0, bc=0.0, bo=0.0, gp=0.0, gt=0.0, gpt=0.0, gpp=0.0, gtt=0.0, gn=0.0)
+        acc = dict(err=0.0, sq=0.0, cnt=0.0, rc=0.0, nc=0.0, ro=0.0, no=0.0, bc=0.0, bo=0.0, gp=0.0, gt=0.0, gpt=0.0, gpp=0.0, gtt=0.0, gn=0.0,
+                   up_se=0.0, up_ae=0.0, up_n=0, crps=0.0)
+        if a.stoch:
+            K = a.stoch_final_samples if collect_samples is not None else a.stoch_val_samples
+            gen = fixed_gen()
         other = "semi-lagrangian" if a.phys == "upwind" else "upwind"      # the residual form not used for training, scored too
         acc2 = dict(rc=0.0, nc=0.0, ro=0.0, no=0.0)
         dq = dict(iters=0.0, res=0.0, res_max=0.0, n=0)
         for b in range(0, len(idx), a.eval_batch):
             bi = T(idx[b:b + a.eval_batch]); hid = HIDg[bi]
             with torch.autocast("cuda", enabled=not a.no_amp):
-                pz = predict_z(model, bi, hid)
+                if a.stoch:
+                    PZ = predict_samples(model, bi, hid, K, gen=gen).float()
+                    pz = sample_median(PZ)
+                else:
+                    pz = predict_z(model, bi, hid)
             pz = pz.float()
+            if a.stoch:
+                acc["crps"] += (STOCH.fair_crps(PZ[:, :, 1], (Yg[bi] - chl_mu) / chl_sd) * hid).sum().item() * chl_sd
+                if collect_samples is not None:
+                    collect_samples[:, b:b + len(bi)] = (PZ[:, :, 1] * chl_sd + chl_mu).half().cpu().numpy()
             if a.model == "deq":
                 dq["iters"] += DQ.LAST_STATS["iters"]; dq["res"] += DQ.LAST_STATS["res"]; dq["res_max"] = max(dq["res_max"], DQ.LAST_STATS["res_max"]); dq["n"] += 1
             if collect_preds is not None:
                 collect_preds[b:b + len(bi)] = (pz[:, 1] * chl_sd + chl_mu).cpu().numpy()
             e_ = (pz[:, 1] * chl_sd + chl_mu - Yg[bi]) * hid
+            if recipe:                                          # their all-pixel z metric (Keras evaluate), pooled over px
+                ez = (pz[:, 1] - RYg[bi]).double()
+                acc["up_se"] += (ez ** 2).sum().item(); acc["up_ae"] += ez.abs().sum().item(); acc["up_n"] += ez.numel()
             acc["err"] += e_.abs().sum().item(); acc["sq"] += (e_ ** 2).sum().item(); acc["cnt"] += hid.sum().item()
             # gradient structure on hidden pixels: pairs with truth at both ends and at least one hidden end (ln CHL per cell)
             pt = pz[:, 1] * chl_sd + chl_mu; ob = OBSg[bi]
@@ -863,7 +1417,8 @@ def main(argv=None):
             acc2["ro"] += (rb2.abs() * clear2).sum().item(); acc2["no"] += clear2.sum().item()
         if a.model == "deq":
             EVAL_DEQ.update(iters=dq["iters"] / max(dq["n"], 1), res=dq["res"] / max(dq["n"], 1), res_max=dq["res_max"])
-        return dict(mae=acc["err"] / max(acc["cnt"], 1), rmse=(acc["sq"] / max(acc["cnt"], 1)) ** 0.5, n_hidden=int(acc["cnt"]), phys_form=a.phys,
+        return dict(crps=acc["crps"] / max(acc["cnt"], 1), up_mse=acc["up_se"] / max(acc["up_n"], 1), up_mae=acc["up_ae"] / max(acc["up_n"], 1), up_n=int(acc["up_n"]),
+                    mae=acc["err"] / max(acc["cnt"], 1), rmse=(acc["sq"] / max(acc["cnt"], 1)) ** 0.5, n_hidden=int(acc["cnt"]), phys_form=a.phys,
                     deq_eval=dict(EVAL_DEQ) if a.model == "deq" else None,
                     other_form=other, abs_rbase_other_cloud=acc2["rc"] / max(acc2["nc"], 1), abs_rbase_other_obs=acc2["ro"] / max(acc2["no"], 1),
                     n_cloud_other=int(acc2["nc"]), n_obs_other=int(acc2["no"]), abs_r_cloud=acc["rc"] / max(acc["nc"], 1), abs_r_obs=acc["ro"] / max(acc["no"], 1),
@@ -946,14 +1501,19 @@ def main(argv=None):
         fig.tight_layout(); fig.savefig(out / "figures" / f"epoch_{ep + 1:03d}.png", dpi=100); plt.close(fig)
 
     hist = dict(train=[], train_phys=[], lam=[], val=[], val_rmse=[], val_grad_ratio=[], val_grad_corr=[], val_phys_cloud=[], val_phys_obs=[], val_physbase_cloud=[], val_physbase_obs=[],
-                val_physother_cloud=[], val_physother_obs=[], alpha=[], kappa=[], lr=[], epoch_s=[],
+                val_physother_cloud=[], val_physother_obs=[], alpha=[], kappa=[], lr=[], lr_used=[], epoch_s=[],
                 deq_train_iters=[], deq_train_res=[], deq_val_iters=[], deq_val_res=[], deq_val_res_max=[], deq_eta=[])
+    if recipe:
+        hist.update(val_up_mse=[], val_up_mae=[])
+    if a.stoch:
+        hist.update(val_crps=[])
     va_s, te_s, hid_va_s, hid_te_s = va[::a.val_stride], te[::a.val_stride], hid_va[::a.val_stride], hid_te[::a.val_stride]
     torch.cuda.reset_peak_memory_stats()
     best, best_ep, best_state, best_src = np.inf, -1, None, None
     # ---- --return: resume state (see RESUME_IGNORED and the docstring)
     best_any = np.inf                                          # best val MAE since epoch 1 (resume.pt trigger, independent of --ckpt-from)
     resume_info = dict(events=[], legacy_resume=False, legacy_epoch=None)
+    source_info = None                                         # --continue-from: source run, its best epoch and score
     start_ep = 0
     if a.eval_only:
         from .runs import find_run
@@ -965,6 +1525,22 @@ def main(argv=None):
         start_ep = a.epochs                                     # skip the training loop
         resume_info["events"].append(dict(epoch=0, kind=f"eval-only from {src}", time=time.strftime("%Y-%m-%d %H:%M:%S")))
         print(f"eval-only: weights of {src / 'model.pt'}", flush=True)
+    elif a.continue_from and a.continue_weights_only and not (a.resume_best and (out / "resume.pt").exists()):
+        from .runs import find_run
+        src = find_run(a.continue_from)
+        ck = torch.load(src / "model.pt", map_location=dev, weights_only=False)
+        missing, unexpected = model.load_state_dict(ck["model"], strict=False)
+        bad_missing = [k for k in missing if not (a.stoch and STOCH.is_noise_param(k))]
+        if bad_missing or unexpected:
+            raise SystemExit(f"--continue-weights-only: state mismatch, missing {bad_missing} unexpected {list(unexpected)}")
+        if a.src_ekman and ck.get("src_ekman") is not None:
+            src_ekman.load_state_dict(ck["src_ekman"])
+        scfg = json.loads((src / "config.json").read_text())
+        source_info = dict(run=a.continue_from, path=str(src), best_epoch=int(scfg.get("best_epoch", -1)), best_score=float(scfg.get("best_val_mae", np.nan)),
+                           score="val hidden-pixel MAE", weights_only=True, n_new_params=len(missing))
+        resume_info["events"].append(dict(epoch=0, kind=f"continue-from {src} model.pt (weights only)", time=time.strftime("%Y-%m-%d %H:%M:%S")))
+        print(f"continue-from (weights only): {src / 'model.pt'} (source best epoch {source_info['best_epoch']}, val {source_info['best_score']:.6f}; "
+              f"{len(missing)} new zero-init params); fresh AdamW, {a.sched if not a.lr_replay else 'replayed'} schedule from lr {a.lr:.3g} over {a.epochs} epochs", flush=True)
     elif a.continue_from and not (a.resume_best and (out / "resume.pt").exists()):
         from .runs import find_run
         src = find_run(a.continue_from)
@@ -972,12 +1548,13 @@ def main(argv=None):
         model.load_state_dict(rs["model"]); opt.load_state_dict(rs["opt"]); scaler.load_state_dict(rs["scaler"])
         for g in opt.param_groups:                             # restart the schedule at --lr (the stored groups carry the old run's end lr)
             g["lr"] = g["initial_lr"] = a.lr
-        if sched is not None:
-            sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.epochs)
+        sched = make_sched()                                   # fresh schedule (cosine / plateau) from --lr
         if a.src_ekman and rs.get("src_ekman") is not None:
             src_ekman.load_state_dict(rs["src_ekman"])
-        resume_info["events"].append(dict(epoch=0, kind=f"continue-from {src} epoch {rs['epoch'] + 1} val {rs['best_any']:.4f}", time=time.strftime("%Y-%m-%d %H:%M:%S")))
-        print(f"continue-from: {src / 'resume.pt'} (epoch {rs['epoch'] + 1}, val {rs['best_any']:.4f}); fresh schedule from lr {a.lr:.3g} over {a.epochs} epochs", flush=True)
+        source_info = dict(run=a.continue_from, path=str(src), best_epoch=int(rs["epoch"]) + 1, best_score=float(rs["best_any"]),
+                           score=("val all-pixel z MSE" if recipe else "val hidden-pixel MAE"), source_lr_end=float(rs["opt"]["param_groups"][0]["lr"]))
+        resume_info["events"].append(dict(epoch=0, kind=f"continue-from {src} epoch {rs['epoch'] + 1} val {rs['best_any']:.6f}", time=time.strftime("%Y-%m-%d %H:%M:%S")))
+        print(f"continue-from: {src / 'resume.pt'} (epoch {rs['epoch'] + 1}, val {rs['best_any']:.6f}); fresh {a.sched} schedule from lr {a.lr:.3g} over {a.epochs} epochs", flush=True)
     elif a.resume_best and (out / "resume.pt").exists():
         rs = torch.load(out / "resume.pt", map_location=dev, weights_only=False)
         old, new = rs["args"], vars(a)
@@ -996,7 +1573,8 @@ def main(argv=None):
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
             best_src = {k: v.detach().clone() for k, v in src_ekman.state_dict().items()} if a.src_ekman else None
         for k in hist:
-            hist[k] = rs["hist"][k][:start_ep]
+            hist[k] = rs["hist"].get(k, [])[:start_ep]
+        source_info = rs.get("source_info")
         rng.bit_generator.state = rs["np_rng"]; torch.set_rng_state(rs["torch_rng"].cpu()); torch.cuda.set_rng_state(rs["cuda_rng"].cpu())
         resume_info = rs["resume_info"]
         resume_info["events"].append(dict(epoch=start_ep, kind="resume", time=time.strftime("%Y-%m-%d %H:%M:%S")))
@@ -1010,7 +1588,7 @@ def main(argv=None):
         h0 = json.loads((out / "history.json").read_text())
         for k in hist:
             hist[k] = h0.get(k, [])[:start_ep]
-        if sched is not None:
+        if isinstance(sched, torch.optim.lr_scheduler.CosineAnnealingLR):
             sched.last_epoch = start_ep; [g.__setitem__("lr", lr_) for g, lr_ in zip(opt.param_groups, sched._get_closed_form_lr())]
         best = best_any = float(ck["val_mae"]); best_ep = start_ep - 1
         best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
@@ -1019,11 +1597,28 @@ def main(argv=None):
         resume_info["events"].append(dict(epoch=start_ep, kind="legacy", time=time.strftime("%Y-%m-%d %H:%M:%S")))
         print("!" * 100 + f"\nLEGACY RESUME: optimizer state reset at epoch {start_ep} (model.pt weights, val {best:.4f}; fresh AdamW moments, "
               f"GradScaler and RNG streams; lr schedule set to epoch {start_ep}: lr {opt.param_groups[0]['lr']:.3g}; arguments not checked)\n" + "!" * 100, flush=True)
+    if a.lr_replay:                                            # per-epoch lr taken from another run's history (lr_used)
+        from .runs import find_run
+        LR_REPLAY = json.loads((find_run(a.lr_replay) / "history.json").read_text())["lr_used"]
+        sched = None
+        print(f"lr-replay from {a.lr_replay}: {len(LR_REPLAY)} epochs, lr {LR_REPLAY[0]:.3g} .. {LR_REPLAY[-1]:.3g}", flush=True)
     for ep in range(start_ep, a.epochs):
         t0 = time.time()
+        if a.lr_replay:
+            if ep >= len(LR_REPLAY):
+                print(f"lr-replay: {a.lr_replay} has only {len(LR_REPLAY)} epochs; stopping"); break
+            for g in opt.param_groups:
+                g["lr"] = LR_REPLAY[ep]
+        lr_used = opt.param_groups[0]["lr"]                     # lr of this epoch's updates ("lr" below: after the scheduler step)
         ltr, lph, lam = train_epoch(ep)
+        restore_val_masks()
         ev_ = residual_stats(va_s)
-        if sched is not None:
+        sel = ev_["up_mse"] if recipe else (ev_["crps"] if a.stoch else ev_["mae"])   # model-selection score (recipe: their val loss)
+        if a.no_select:                                         # every epoch counts as the best: model.pt = last epoch
+            sel = -float(ep + 1)
+        if isinstance(sched, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            sched.step(sel)
+        elif sched is not None:
             sched.step()
         al = float(src_ekman.alpha().detach()) if a.src_ekman else None
         ka = src_ekman.kappa().detach().cpu().numpy().tolist() if a.src_ekman else None
@@ -1031,12 +1626,16 @@ def main(argv=None):
                          val_phys_cloud=ev_["abs_r_cloud"], val_phys_obs=ev_["abs_r_obs"],
                          val_physbase_cloud=ev_["abs_rbase_cloud"], val_physbase_obs=ev_["abs_rbase_obs"],
                          val_physother_cloud=ev_["abs_rbase_other_cloud"], val_physother_obs=ev_["abs_rbase_other_obs"], alpha=al, kappa=ka,
-                         lr=opt.param_groups[0]["lr"], epoch_s=time.time() - t0,
+                         lr=opt.param_groups[0]["lr"], lr_used=lr_used, epoch_s=time.time() - t0,
                          deq_train_iters=TRAIN_DEQ["iters"], deq_train_res=TRAIN_DEQ["res"], deq_val_iters=EVAL_DEQ["iters"], deq_val_res=EVAL_DEQ["res"],
                          deq_val_res_max=EVAL_DEQ["res_max"], deq_eta=(float(model.cell.eta().detach()) if a.model == "deq" else None)).items():
             hist[k].append(v)
-        if ep + 1 > a.ckpt_from and ev_["mae"] < best:
-            best, best_ep = ev_["mae"], ep
+        if recipe:
+            hist["val_up_mse"].append(ev_["up_mse"]); hist["val_up_mae"].append(ev_["up_mae"])
+        if a.stoch:
+            hist["val_crps"].append(ev_["crps"])
+        if ep + 1 > a.ckpt_from and sel < best:
+            best, best_ep = sel, ep
             best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
             best_src = {k: v.detach().clone() for k, v in src_ekman.state_dict().items()} if a.src_ekman else None
             torch.save(dict(model=best_state, src_ekman=best_src, epoch=ep + 1, val_mae=best), out / "model.pt")
@@ -1044,20 +1643,23 @@ def main(argv=None):
               f"grad ratio {ev_['grad_ratio']:.3f} corr {ev_['grad_corr']:.3f}  val |r| cloud {ev_['abs_r_cloud']:.4f} obs {ev_['abs_r_obs']:.4f}  base cloud {ev_['abs_rbase_cloud']:.4f}  {ev_['other_form'][:4]} cloud {ev_['abs_rbase_other_cloud']:.4f} obs {ev_['abs_rbase_other_obs']:.4f}  peak {torch.cuda.max_memory_allocated() / 1e9:.1f} GB"
               + (f"  alpha {al:.3g} kappa [{', '.join(f'{k:.2f}' for k in ka)}]" if a.src_ekman else "")
               + (f"  deq train it {TRAIN_DEQ['iters']:.1f} res {TRAIN_DEQ['res']:.2e} | val it {EVAL_DEQ['iters']:.1f} res {EVAL_DEQ['res']:.2e} max {EVAL_DEQ['res_max']:.2e} eta {float(model.cell.eta().detach()):.3f}" if a.model == "deq" else "")
+              + (f"  val all-px z mse {ev_['up_mse']:.5f} mae {ev_['up_mae']:.4f} (n {ev_['up_n']})" if recipe else "")
+              + (f"  val crps {ev_['crps']:.4f}" if a.stoch else "")
+              + f"  lr {lr_used:.3g}" + (f" -> {opt.param_groups[0]['lr']:.3g}" if opt.param_groups[0]["lr"] != lr_used else "")
               + f"  ({time.time() - t0:.0f}s)", flush=True)
-        (out / "history.json").write_text(json.dumps(hist))
-        if ev_["mae"] < best_any:                             # full training state at the best epoch so far (--return)
-            best_any = ev_["mae"]
+        (out / "history.json").write_text(json.dumps(dict(hist, source=source_info) if source_info else hist))
+        if sel < best_any:                                    # full training state at the best epoch so far (--return)
+            best_any = sel
             rs = dict(model=model.state_dict(), opt=opt.state_dict(), sched=(sched.state_dict() if sched is not None else None),
                       scaler=scaler.state_dict(), src_ekman=(src_ekman.state_dict() if a.src_ekman else None), epoch=ep,
                       best_any=best_any, best=best, best_ep=best_ep, hist={k: list(v) for k, v in hist.items()},
                       np_rng=rng.bit_generator.state, torch_rng=torch.get_rng_state(), cuda_rng=torch.cuda.get_rng_state(),
-                      args=dict(vars(a)), resume_info=resume_info)
+                      args=dict(vars(a)), resume_info=resume_info, source_info=source_info)
             torch.save(rs, out / "resume.pt.tmp"); os.replace(out / "resume.pt.tmp", out / "resume.pt")
         if a.fig_every > 0 and ((ep + 1) % a.fig_every == 0 or ep == 0 or ep + 1 == a.epochs):
             diagnostic_figure(ep)
         if best_ep >= 0 and ep - best_ep >= a.patience:
-            print(f"early stop; best epoch {best_ep + 1} val {best:.4f}"); break
+            print(f"early stop; best epoch {best_ep + 1} val {best:.5f}"); break
         if a.stop_epoch and ep + 1 >= a.stop_epoch:
             print(f"stop-epoch {a.stop_epoch} reached (schedule spans {a.epochs} epochs); best epoch {best_ep + 1} val {best:.4f}"); break
     if a.eval_only:
@@ -1068,10 +1670,23 @@ def main(argv=None):
         model.load_state_dict(best_state)
         if a.src_ekman:
             src_ekman.load_state_dict(best_src)
+    if a.no_select and best_ep >= 0:                           # report the selected (= last) epoch's val MAE, not the -epoch sentinel
+        best = hist["val"][best_ep]
+    restore_val_masks()
 
     ev = np.r_[va_s, te_s]
     preds = np.full((len(ev), H, W), np.nan, dtype="float32")
-    rstats = dict(val=residual_stats(va_s, preds[:len(va_s)]), test=residual_stats(te_s, preds[len(va_s):]))
+    samples = np.full((a.stoch_final_samples, len(ev), H, W), np.nan, dtype="float16") if a.stoch else None
+    rstats = dict(val=residual_stats(va_s, preds[:len(va_s)], None if samples is None else samples[:, :len(va_s)]),
+                  test=residual_stats(te_s, preds[len(va_s):], None if samples is None else samples[:, len(va_s):]))
+    if a.leak_day is not None and a.memory:                    # leak test: the memory channels (and anomaly) of target t
+        mc, an, cn = memory(T(np.array([a.leak_day])), want_anom=True)
+        np.savez(out / "leak_memory.npz", channels=mc[0].cpu().numpy(), anom=an[0].cpu().numpy(), cnt30=cn[0].cpu().numpy(),
+                 hidden=hidden[a.leak_day], day=a.leak_day)
+    if samples is not None:                                    # --stoch: every sample of day t, ln CHL, NaN on land
+        samples[:, :, ~ocean] = np.nan
+        np.savez_compressed(out / "samples.npz", samples=samples, idx=ev, val_idx=va_s, test_idx=te_s, seed=12345)
+        del samples
     preds_raw = preds.copy() if a.store == "io_up" else None     # io_up: raw output on every pixel, float32 (analyses/upstream)
     preds[:, ~ocean] = np.nan
     pv, pt = preds[:len(va_s)], preds[len(va_s):]
@@ -1080,6 +1695,10 @@ def main(argv=None):
     for name, idx, pr, hid in [("val", va_s, pv, hid_va_s), ("test", te_s, pt, hid_te_s)]:
         scores[name] = dict(cnn_hidden=metrics(y[idx], pr, hid), cnn_observed=metrics(y[idx], pr, obs[idx]),
                             climatology_hidden=metrics(y[idx], clim_ref[idx], hid), physics=rstats[name])
+        if recipe:
+            scores[name]["up_allpx"] = dict(z_mse=rstats[name]["up_mse"], z_mae=rstats[name]["up_mae"], n_px=rstats[name]["up_n"],
+                                            zero_pred_z_mse=recipe_info["zero_pred_allpx"][f"{name}_mse"], zero_pred_z_mae=recipe_info["zero_pred_allpx"][f"{name}_mae"],
+                                            n_days=len(idx), last_batch_size=len(idx) % 4 or 4)
         if a.clim:   # day-of-year climatology (8-day bins from training days), the reference used in analyses/FINDINGS.md
             scores[name]["doy_climatology_hidden"] = metrics(y[idx], clim_np[doy_bin[idx]], hid)
     if a.model == "deq":
@@ -1096,9 +1715,13 @@ def main(argv=None):
                ekman_kappa=(src_ekman.kappa().detach().cpu().numpy().tolist() if a.src_ekman else None),
                chl_norm=dict(mean=chl_mu, std=chl_sd), wall_s=time.time() - t_start, fig_day=str(TIMES[fig_day])[:10],
                split=dict(val_years=list(val_years), test_years=list(test_years), val_stride=a.val_stride, n_val_scored=len(va_s), n_test_scored=len(te_s)),
+               recipe_info=(recipe_info if recipe else None), stopped_epoch=len(hist["val"]), continue_from_source=source_info,
+               final_lr=opt.param_groups[0]["lr"], n_lr_drops=(int(sum(lr_ < lu for lu, lr_ in zip(hist["lr_used"], hist["lr"]))) if a.sched == "plateau" else None),
                grid=[H, W], n_ocean=int(ocean.sum()), lat_ascending=not lat_desc, peak_gpu_gb=torch.cuda.max_memory_allocated() / 1e9, peak_gpu_reserved_gb=torch.cuda.max_memory_reserved() / 1e9)
+    if a.ablate:
+        cfg["ablate_info"] = ABL_INFO
     (out / "config.json").write_text(json.dumps(cfg, indent=1))
-    (out / "history.json").write_text(json.dumps(hist))
+    (out / "history.json").write_text(json.dumps(dict(hist, source=source_info) if source_info else hist))
     (out / "metrics.json").write_text(json.dumps(dict(
         scores=scores, per_day_test=per_day_metrics(y[te_s], pt, hid_te_s), per_day_val=per_day_metrics(y[va_s], pv, hid_va_s),
         obs_frac=dict(val=obs_frac[va_s].tolist(), test=obs_frac[te_s].tolist())), indent=1))
@@ -1106,7 +1729,7 @@ def main(argv=None):
     if preds_raw is not None:
         np.savez_compressed(out / "preds.npz", pred=preds_raw, idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s, time=TIMES[ev])
     else:
-        np.savez_compressed(out / "preds.npz", pred=preds.astype("float16"), idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s)
+        np.savez_compressed(out / "preds.npz", pred=(preds if a.preds_f32 else preds.astype("float16")), idx=ev, hidden=hidden[ev], val_idx=va_s, test_idx=te_s)
     print("wrote", out, f"({(time.time() - t_start) / 60:.1f} min)")
 
 

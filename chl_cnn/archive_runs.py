@@ -53,9 +53,11 @@ def settings(cat, c):
     if c.get("context_before") is not None and (c.get("context_before"), c.get("context_after")) != (c.get("context"), c.get("context")):
         parts.append(f"window=t-{c['context_before']}..t+{c['context_after']}")
     for k, d in [("phys", "none"), ("context_clouds", "persist"), ("donor_exclude", 0), ("batch", None), ("lr", 1e-3),
-                 ("stop_epoch", 0), ("continue_from", None), ("init_from", None), ("fake_mask", "donor")]:
+                 ("stop_epoch", 0), ("continue_from", None), ("init_from", None), ("fake_mask", "donor"), ("recipe", "none")]:
         if k in c and c[k] not in (d, None):
             parts.append(f"{k}={c[k]}")
+    if c.get("recipe", "none") != "none" and c.get("sched", "none") != "none":     # recipe runs: constant lr unless a schedule was asked for
+        parts.append(f"sched={c['sched']}")
     return " ".join(parts)
 
 

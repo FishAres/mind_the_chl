@@ -4,7 +4,7 @@ pixels for PINN runs (right). Redrawn every --every seconds (history.json is rew
   python -m chl_cnn.watch                                  # all categories -> models/progress.png, once
   python -m chl_cnn.watch --cat pinn/cnn,pinn/unet --every 60 --out models/progress_pinn.png
   python -m chl_cnn.watch --cat pinn/cnn --glob 'pinn_v2_*'
-Categories: cnn, unet, pinn/cnn, pinn/unet (see chl_cnn/runs.py). Interactive version: notebooks/progress.ipynb.
+Categories: see chl_cnn/runs.py; --archived adds models/history/. Interactive version: notebooks/progress.ipynb.
 """
 import argparse, json, time
 from pathlib import Path
@@ -13,7 +13,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 
 from .plotting import OKABE_ITO
-from .runs import MODELS, CATEGORIES, list_runs, category_of
+from .runs import MODELS, CATEGORIES, list_runs, category_of, run_label, is_running
 
 
 def draw_runs(run_dirs, axes=None, title_suffix=""):
@@ -29,16 +29,17 @@ def draw_runs(run_dirs, axes=None, title_suffix=""):
         if "val" not in h:                        # tracer runs (train_tracer.py) log val_mean_lead (mean over leads, own pixel set)
             h = dict(h, val=h.get("val_mean_lead", []))
         if not h["val"]:
-            print(f"skip {category_of(p)}/{name}: no validation epochs logged yet"); continue
+            print(f"skip {run_label(p)}: no validation epochs logged yet"); continue
         done = (p / "metrics.json").exists()
+        st = "done" if done else ("running" if is_running(p) else "unfinished")
         col = OKABE_ITO[i % len(OKABE_ITO)]; ls = ["-", "--", ":"][(i // len(OKABE_ITO)) % 3]
         ep = range(1, len(h["val"]) + 1)
         ax.plot(ep, h["val"], color=col, ls=ls, lw=1.4 if not done else 1, alpha=1 if not done else .75,
-                label=f"{category_of(p)}/{name}{'' if done else ' (running)'}  {len(h['val'])} ep, best {min(h['val']):.3f}")
+                label=f"{run_label(p)}{'' if done else f' ({st})'}  {len(h['val'])} ep, best {min(h['val']):.3f}")
         if "val_phys_cloud" in h:
             axp.plot(ep, h["val_phys_cloud"], color=col, ls=ls, lw=1.4, label=f"{name}: under real clouds")
             axp.plot(ep, h["val_phys_obs"], color=col, ls=ls, lw=0.8, alpha=.6, label=f"{name}: observed pixels")
-        rows.append((category_of(p), name, len(h["val"]), min(h["val"]), "done" if done else "running"))
+        rows.append((category_of(p), name, len(h["val"]), min(h["val"]), st))
         v = sorted(h["val"]); lo.append(v[0]); hi.append(v[int(0.75 * (len(v) - 1))])
     ylim = (0.95 * min(lo), 1.05 * max(hi)) if lo else (0.1, 0.4)
     ax.set(xlabel="epoch", ylabel="val MAE on hidden pixels, ln(CHL)", ylim=ylim, title=f"Validation MAE by epoch{title_suffix}")
@@ -52,8 +53,8 @@ def draw_runs(run_dirs, axes=None, title_suffix=""):
     return rows, fig
 
 
-def draw(out=MODELS / "progress.png", cats=None, pattern="*"):
-    runs = list_runs(cats, pattern)
+def draw(out=MODELS / "progress.png", cats=None, pattern="*", archived=False):
+    runs = list_runs(cats, pattern, archived)
     rows, fig = draw_runs(runs, title_suffix=f"  (updated {time.strftime('%H:%M:%S')})")
     fig.tight_layout(); fig.savefig(out, dpi=110); plt.close(fig)
     return rows
@@ -64,9 +65,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("--every", type=float, default=0)
     ap.add_argument("--cat", default=",".join(CATEGORIES), help="comma-separated categories: " + ", ".join(CATEGORIES))
     ap.add_argument("--glob", default="*", help="run-name glob within the categories")
+    ap.add_argument("--archived", action="store_true", help="also archived runs in models/history/")
     ap.add_argument("--out", default=str(MODELS / "progress.png")); a = ap.parse_args()
     while True:
-        for cat, name, n, best, st in draw(Path(a.out), a.cat.split(","), a.glob):
+        for cat, name, n, best, st in draw(Path(a.out), a.cat.split(","), a.glob, a.archived):
             print(f"{cat:10s} {name:28s} {st:8s} epochs {n:3d}  best val {best:.4f}")
         if a.every <= 0:
             break

@@ -515,3 +515,379 @@ Every run with its settings and scores, generated: [models/RUNS.md](../models/RU
 
   Hidden px n val 1,944,337 / test 2,851,659, 366 days each; 0 non-finite predictions. Epoch-60 val: A 0.0971 (vis 0.1) / 0.0977 (vis 1.0); B 0.0977 / 0.0978. Figures analyses/upstream/figures/{summary_metrics,per_day_mae_test}.png now include the vis 1.0 rows (panel added: visible-pixel MAE).
 - Interpretation (hedged): with equal pixel weights, visible-pixel MAE stays 1.6-2.2x the U-Net's, consistent with the parts of the loss still focused on hidden px (gradient pairs, physics paste), or with capacity spent on the hidden task; hidden-MAE changes are +0.0004 to +0.0007 on single seeds, with no seed-noise estimate on this protocol.
+
+## 2024 hackweek training recipe: our two best IO architectures trained and scored their way (IO; 2026-10-21; train_pinn.py --recipe up2024, store_io_up.recipe_up2024, analyses/upstream/compare_recipe.py)
+- Protocol, checked against U-Net_Tutorial cells 6, 9, 10, 12, 15, 18, 28-29: io_up store days and split, with train 2015-01-01..2018-01-01 inclusive (1097 days; 2018-01-01 is also a val day). Their hidden mask with no ocean cut (finite L3 & cloud code 0 at record t+10). Their 13 inputs:
+  - u/v wind, SST and air temp, float32 values re-read from IO.zarr (the store copies are float16);
+  - sin/cos of float32((days since 1900-01-01) / 365 · 2π);
+  - masked CHL, plus CHL of records t±1 (unmasked);
+  - land flag (cloud code 2 on 1997-10-01), real-cloud flag (code 1 at t), valid-CHL flag and fake-cloud flag (land + real + valid == 0).
+  - Numeric channels are z-scored over the train records [2015-01-01, 2018-01-01), and NaN is set to 0 after scaling.
+  - Target: ln L3 z-scored over all 9193 records (mean -1.7432, std 0.8358), NaN → 0.
+  - Loss: plain MSE in z over all 42,240 px of each frame, day-t head only, no gradient term, no neighbour-day loss.
+  - Optimiser: Adam (eps 1e-7, no weight decay), lr 1e-3 constant, batch 4, max 50 epochs, fp32 (--no-amp). Early stopping on val all-pixel z MSE with patience 10; best-val-loss weights restored; no --ckpt-from delay.
+  - Train order: a tf.data-style shuffle buffer of 512 days (their `shuffle(buffer_size=512)`), redrawn each epoch. Seed 0, single seed per config.
+- Data checks: the fake-cloud flag equals the store hidden mask on every px (0 mismatched of 9,023,264). The land flag has 15,138 px with 0 finite-L3 px. Real-cloud px with finite L3: 0. Cloud codes {0, 1, 2}.
+- Architectures:
+  - t3d: temporal3d with a dilated backbone, width 64, 8 blocks, stem 2 × Conv3d(32); 651,299 params. Its 3-day window has 8 slots per day: [4 features, masked CHL, real cloud, valid, fake cloud] filled on day t. CHL t±1 sits in the CHL slot of days t±1, and every other slot is 0. sin, cos and the land flag enter as static channels after the stem.
+  - dil96: 2D dilated CNN, width 96, default dilations; 1,343,523 params; the 13 channels as input.
+  - Physics runs: upwind residual, λ 0.3 (ramped 0.1 / 0.2 / 0.3 over the first 3 epochs, existing --phys-warmup). It acts on ocean px with a full 5-point ocean stencil (25,788 of 42,240 px/day), finite currents and both neighbour days. Visible day-t px (and observed t±1 px) are pasted in before the residual, so the physics term reaches the output only at hidden and real-cloud ocean px of day t and at unobserved px of the t±1 heads.
+- Deviations from their recipe:
+  - architecture (by design);
+  - 3-day output head (the t±1 heads get no data loss and feed only the physics residual);
+  - PyTorch default init instead of Glorot;
+  - our RNG for the shuffle buffer;
+  - normalisation statistics in float64;
+  - physics currents taken from the float16 store as before;
+  - the best-val weights are always restored. Older Keras restored them only when early stopping fired, and 3 of 4 runs reached epoch 50 without firing.
+  - Train has 1097 days = 274 × 4 + 1, and val / test 366 = 91 × 4 + 2, so the last batch is partial. The pooled pixel mean is reported; tf.keras evaluate weights batch means by sample count, so the two agree.
+- Runs: models/pinn/upstream/upr_{t3d,dil96}_lam{0,0p3}, wall time 23.7-34.1 min each. Logs and queue: ~/mind_the_chl_gap/logs/upstream_recipe/.
+
+| model | test z MAE | test z MSE | test hidden MAE full / ocean | test vis MAE | test grad ratio / corr | best / stopped ep |
+|---|---|---|---|---|---|---|
+| upr_t3d_lam0 | 0.0302 | 0.00795 | 0.1051 / 0.1049 | 0.0197 | 0.706 / 0.725 | 46 / 50 |
+| upr_t3d_lam0p3 | 0.0434 | 0.01036 | 0.1154 / 0.1153 | 0.0227 | 0.662 / 0.708 | 48 / 50 |
+| upr_dil96_lam0 | 0.0293 | 0.00805 | 0.1049 / 0.1048 | 0.0165 | 0.676 / 0.723 | 40 / 50 (early stop) |
+| upr_dil96_lam0p3 | 0.0417 | 0.01023 | 0.1155 / 0.1154 | 0.0212 | 0.675 / 0.708 | 48 / 50 |
+| 10-20 B up_t3d_lam0p3_theirin | 0.8097 (lb 0.0277) | 1.61636 (lb 0.01009) | 0.0994 / 0.0976 | 0.0318 | 0.704 / 0.730 | 28 / 60 |
+| 10-20 A up_t3d_lam0p3_ours | 0.3664 (lb 0.0292) | 0.35780 (lb 0.01088) | 0.1017 / 0.0998 | 0.0374 | 0.722 / 0.719 | 52 / 60 |
+| 2024 U-Net level3_pred | lb 0.0266 | lb 0.00819 | 0.1077 / 0.1075 | 0.0163 | 0.716 / 0.700 | - |
+| published 2024 U-Net | 0.0301 | 0.00815 | - | - | - | - |
+
+  Val, same columns: upr_t3d_lam0 0.0224 / 0.00557 / 0.1021 / 0.1020 / 0.0196 / 0.698 / 0.685; upr_t3d_lam0p3 0.0339 / 0.00771 / 0.1152 / 0.1152 / 0.0216 / 0.652 / 0.664; upr_dil96_lam0 0.0216 / 0.00564 / 0.1024 / 0.1022 / 0.0151 / 0.668 / 0.682; upr_dil96_lam0p3 0.0324 / 0.00743 / 0.1150 / 0.1149 / 0.0210 / 0.666 / 0.666; B lb 0.0203 / lb 0.00824 / 0.0986 / 0.0961 / 0.0303 / 0.707 / 0.680; A lb 0.0208 / lb 0.00837 / 0.0991 / 0.0966 / 0.0328 / 0.736 / 0.657; U-Net lb 0.0187 / lb 0.00583 / 0.1068 / 0.1067 / 0.0152 / 0.711 / 0.655.
+  - z metric: raw output at every px, 366 × 176 × 240 = 15,459,840 px per split. lb = 0 error at NaN-target px (lower bound), the only convention available for level3_pred (no output at 10.4 M test px). Lower bounds of the recipe runs: test z MAE 0.0266 / 0.0294 / 0.0260 / 0.0292.
+  - The 10-20 runs were trained on ocean hidden / visible px only, so their raw output on land and cloud px is unconstrained (hence 0.81 / 0.37).
+  - n px, test / val: hidden full 2,854,295 / 1,946,508; hidden ocean 2,851,659 / 1,944,337; visible (ocean) 2,242,444 / 2,222,937; gradient pairs (ocean) 5.48 M / 3.71 M. 0 non-finite predictions from our runs.
+  - All-zero prediction: test z MAE 0.2328 / MSE 0.2971, val 0.1761 / 0.2277. This equals mean |target z| over all px, matching the trainer's value.
+- Checks:
+  - --eval-only --init-from up_t3d_lam0p3_theirin (original flags) reproduces val 0.096096 / test 0.097627 with the same n (models/pinn/upstream/upr_regcheck_theirin_eval).
+  - The default IO check --init-from t3d_dil_c4_60ep_gdl100 gives val 0.130165 / test 0.130548 with the same n (models/pinn/t3d/upr_regcheck_default_eval).
+  - Smoke runs (1 epoch × 4 configs): 13 input channels, 42,240 loss px per sample, target mean / std as up_norm.json.
+  - compare_recipe's all-pixel values match the trainer's metrics.json up_allpx to ~1e-11.
+- Outputs: analyses/upstream/results/recipe_{summary.json,summary.csv,per_day_val.csv,per_day_test.csv}; figure analyses/upstream/figures/recipe_summary.png.
+- Interpretation (hedged), single seed per config:
+  - Without physics, both architectures trained the 2024 way land at the published U-Net's test numbers (z MAE 0.0293-0.0302 vs 0.0301; MSE 0.00795-0.00805 vs 0.00815).
+  - Their hidden MAE (0.1048-0.1049 ocean) sits between the U-Net's level3_pred (0.1075) and the 10-20 runs trained with our hidden-focused loss (0.0976-0.0998). This is consistent with the loss and weighting, more than the architecture, setting most of the hidden-pixel gap.
+  - Under this all-pixel MSE recipe the upwind physics term at λ 0.3 raised every error metric on both architectures. 3 of 4 runs were still improving at epoch 50.
+
+## 2024 hackweek recipe, stage 1: training length, lr schedule, physics weight (IO; 2026-10-21; train_pinn.py --sched plateau, analyses/upstream/compare_recipe.py --set recipe2)
+- Protocol unchanged from the upr_* section above (their data, 13 inputs, all-pixel MSE in z, split, Adam, batch 4). Only length, lr schedule and one physics weight change. Model selection and early stopping use val (2018) all-pixel z MSE only. Test is scored for every run and used for no choice. Single seed (0) per config.
+- Code (opt-in, defaults unchanged):
+  - `--sched plateau`: ReduceLROnPlateau on the selection score, `--plateau-factor 0.5 --plateau-patience 5 --min-lr 1e-6`, torch's default relative threshold 1e-4. Its state is saved in resume.pt.
+  - `--recipe up2024` now keeps explicit `--sched / --epochs / --patience` (defaults stay none / 50 / 10) and accepts `--continue-from`.
+  - history.json gains `lr_used` (lr of the epoch's updates; `lr` stays the post-step value) and `source` (warm restarts: source run, best epoch, best val z MSE). config.json gains continue_from_source, final_lr and n_lr_drops.
+- Runs (models/pinn/upstream/; flags beyond the upr_* common flags):
+  - upr_dil96_lam0_plat, upr_t3d_lam0_plat: `--continue-from <source> --lr 1e-3 --sched plateau --plateau-patience 5 --patience 15 --epochs 200`.
+  - upr_t3d_lam0p03: `--phys upwind --lam 0.03`, otherwise as upr_t3d_lam0.
+  - upr_dil96_lam0_cos150: `--sched cosine --epochs 150 --patience 30`.
+  - Wall time 16 / 13 / 24 / 58 min.
+
+| model | test z MAE full / lb | test z MSE full / lb | test hidden MAE (full) | test vis MAE | test grad ratio / corr | best / stopped ep, final lr |
+|---|---|---|---|---|---|---|
+| upr_t3d_lam0 | 0.0302 / 0.0266 | 0.00795 / 0.00791 | 0.1051 | 0.0197 | 0.706 / 0.725 | 46 / 50, 1e-3 |
+| upr_t3d_lam0_plat | 0.0276 / 0.0250 | 0.00783 / 0.00780 | 0.1031 | 0.0129 | 0.729 / 0.725 | 10 / 25 (+46), 1.25e-4 |
+| upr_t3d_lam0p03 | 0.0308 / 0.0271 | 0.00800 / 0.00794 | 0.1053 | 0.0220 | 0.706 / 0.726 | 49 / 50, 1e-3 |
+| upr_t3d_lam0p3 | 0.0434 / 0.0294 | 0.01036 / 0.00870 | 0.1154 | 0.0227 | 0.662 / 0.708 | 48 / 50, 1e-3 |
+| upr_dil96_lam0 | 0.0293 / 0.0260 | 0.00805 / 0.00801 | 0.1049 | 0.0165 | 0.676 / 0.723 | 40 / 50, 1e-3 |
+| upr_dil96_lam0_plat | 0.0289 / 0.0261 | 0.00796 / 0.00792 | 0.1051 | 0.0165 | 0.709 / 0.723 | 8 / 23 (+40), 2.5e-4 |
+| upr_dil96_lam0_cos150 | 0.0287 / 0.0252 | 0.00791 / 0.00787 | 0.1034 | 0.0137 | 0.703 / 0.720 | 56 / 86, 3.9e-4 |
+| upr_dil96_lam0p3 | 0.0417 / 0.0292 | 0.01023 / 0.00871 | 0.1155 | 0.0212 | 0.675 / 0.708 | 48 / 50, 1e-3 |
+| 2024 U-Net level3_pred | - / 0.0266 | - / 0.00819 | 0.1077 | 0.0163 | 0.716 / 0.700 | - |
+| published 2024 U-Net | 0.0301 | 0.00815 | - | - | - | - |
+
+  Val, same columns:
+  - upr_t3d_lam0 0.0224 / 0.0188, 0.00557 / 0.00553, 0.1021, 0.0196, 0.698 / 0.685.
+  - _plat 0.0197 / 0.0172, 0.00549 / 0.00547, 0.1004, 0.0121, 0.716 / 0.685.
+  - lam0p03 0.0224 / 0.0189, 0.00561 / 0.00555, 0.1024, 0.0199, 0.690 / 0.686.
+  - lam0p3 0.0339 / 0.0211, 0.00771 / 0.00629, 0.1152, 0.0216, 0.652 / 0.664.
+  - upr_dil96_lam0 0.0216 / 0.0180, 0.00564 / 0.00561, 0.1024, 0.0151, 0.668 / 0.682.
+  - _plat 0.0210 / 0.0177, 0.00558 / 0.00552, 0.1019, 0.0137, 0.697 / 0.683.
+  - cos150 0.0212 / 0.0174, 0.00561 / 0.00557, 0.1013, 0.0127, 0.689 / 0.677.
+  - lam0p3 0.0324 / 0.0209, 0.00743 / 0.00621, 0.1150, 0.0210, 0.666 / 0.666.
+  - U-Net - / 0.0187, - / 0.00583, 0.1068, 0.0152, 0.711 / 0.655.
+  - n px per split: z metric 15,459,840; hidden (full) test 2,854,295 / val 1,946,508; visible 2,242,444 / 2,222,937; gradient pairs 5.48 M / 3.71 M. Non-finite predictions from our runs: 0. lb = 0 error at NaN-target px.
+- Warm restarts (val z MSE):
+  - Epoch-1 val 0.00597 (dil96) / 0.00607 (t3d) vs source best 0.00564 / 0.00557. A fresh model is at 0.022 / 0.018 after epoch 1, and the sources' last 10 constant-lr epochs ranged 0.00564-0.00674 / 0.00557-0.00663.
+  - Loaded weights equal the source model.pt (max abs diff 0).
+  - Best 0.005579 at restart epoch 8 (dil96; −0.000061 vs source) and 0.005491 at epoch 10 (t3d; −0.000078). Each was the first epoch below the source's best.
+  - lr drops: 2 for dil96 (after epochs 14, 20) and 3 for t3d (after 9, 16, 22). dil96: the best epoch came before the first drop. t3d: the best is epoch 10, the first epoch at 5e-4; no epoch after the second or third drop beat it.
+  - Early stop at 23 / 25. dil96_plat has one spike at restart epoch 10 (0.0238).
+- λ 0.03 vs λ 0 (t3d, val z MSE at epochs 10 / 20 / 30 / 40 / 50): 0.00883 / 0.00709 / 0.00646 / 0.00576 / 0.00564 vs 0.00793 / 0.00717 / 0.00645 / 0.00566 / 0.00562. Best 0.005607 (ep 49) vs 0.005569 (ep 46). Train at epoch 50: data 0.0039, λ·phys 0.0027.
+- Cosine 150 vs constant (dil96, same epochs): 0.00898 / 0.00713 / 0.00609 / 0.00563 / 0.00565 vs 0.00823 / 0.00759 / 0.00598 / 0.00564 / 0.00571. Best 0.005611 at epoch 56 (lr 7e-4). Val rose to 0.0060-0.0064 over epochs 60-86 while lr fell to 3.9e-4, then early stop at 86.
+- Checks:
+  - `--eval-only --init-from upr_t3d_lam0` (original flags, models/pinn/upstream/upr_regcheck_t3d_lam0_eval) reproduces metrics.json val / test z MSE, z MAE and hidden MAE exactly (0.005569385 / 0.007954644).
+  - --return with a plateau run (smoke: metrics.json removed, rerun) resumed at the best epoch with the scheduler state.
+  - The continuation was bit-identical to the smoke run for epochs 1-3.
+  - compare_recipe all-pixel values match the trainers' metrics.json to ~3e-12.
+- Outputs: analyses/upstream/results/recipe2_{summary.json,summary.csv,per_day_val.csv,per_day_test.csv,stage1.json}; figures analyses/upstream/figures/recipe2_curves.png (val z MSE and lr vs epoch; y axis clipped at 1.6 × the minimum) and recipe2_summary.png. Queue ~/mind_the_chl_gap/logs/upstream_recipe/queue2.sh, logs there.
+- Interpretation (hedged; single seeds, no seed-noise estimate on this protocol):
+  - The val gains of the warm restarts (−0.00006 to −0.00008) and of cosine 150 (−0.00003 vs upr_dil96_lam0) are smaller than the epoch-to-epoch jitter of every val curve here (≥ 0.0003).
+  - The best epochs came at lr 5e-4-1e-3. Lower lr did not lower val z MSE further.
+  - At λ 0.03 the physics run trails λ 0 early (epoch 10) and matches it from epoch 20 on, within jitter.
+
+## Efficient-attention track, Part A: eval-only checks of the ±8-day attention stem (IO; 2026-10-23; chl_cnn/tattn.py EVAL_HOOKS, analyses/io3_attn/{attn_eval,checks}.py)
+- Model: io2_tattn8 (attention stem ±8 d, batch 4, 60 epochs; val 0.128594 / test 0.127181). Val n = 1,458 days, 4,998,642 hidden px; no non-finite predictions.
+- Hooks are opt-in. With them off, preds are bit-identical to an eval made before the edit and to io2_tattn8's own preds.npz (max |Δ| 0). With the recorder on, preds are also identical.
+- A1a, pooling weights (mean over the 4 heads) on val hidden px:
+  - share on |offset| > 4: 0.155 (0.032 on days visible at the px, 0.122 on days not visible);
+  - share on visible days, all offsets: 0.238; day t's own token: 0.157;
+  - each context day is visible (donor-masked) at 10.5-11.1 % of hidden px;
+  - mean weight of a day given visible vs not visible: ±1 d 0.449-0.453 vs 0.111-0.122; ±4 d 0.086-0.089 vs 0.030-0.033; ±8 d 0.023 vs 0.014.
+- A1b, pooling restricted to |offset| ≤ 4 (renormalised, eval-only): val 0.128594 → 0.130435 (+0.00184).
+- A2, optimiser steps (ceil(5540 / batch) per epoch):
+  - at about 41.6k steps, the attention run (epoch 30) has best val over epochs 11-30 of 0.130606; the conv ±4 seeds (epoch 60, best over 11-60) have 0.130165 / 0.130113 / 0.130352;
+  - every run uses a cosine over 60 epochs, so per step the batch-4 schedule is 2× longer.
+- A3, self-attention block bypassed (eval-only): val 1.1714 (bias +1.158). Indicative only (distribution shift).
+- A4a, pooling-weight map autocorrelation (98 val days, every 15th; variance-weighted over the 17 offsets):
+  - lag where it drops below 0.5: median 3.9 px (IQR 3.4-4.7);
+  - visible-pair variant: 4.8 px (4.0-6.3);
+  - rho at lags 1 / 2 / 4 / 8 px: 0.85 / 0.69 / 0.49 / 0.32.
+  - Score-arm rule (median < 2 px → pixel-query): interpolated arm.
+- A4b, val MAE gain of io2_tattn8 over conv ±4, seed 0 [range over seeds 0/1/2]:
+  - all: 0.0016 [0.0015-0.0018];
+  - past-only age (t−8..t−1): 1 d 0.0012, 2-3 d 0.0013, 4-8 d 0.0027, none 0.0024;
+  - two-sided age (nearest real obs in t±8, excluding t): 1 d 0.0012 (n 3.51 M), 2-3 d 0.0020 (1.05 M), 4-8 d 0.0035 (0.35 M), none 0.0018 (0.09 M);
+  - distance to nearest visible px: 1 px 0.0008, 2-3 px 0.0015, 4-7 px 0.0024, 8-15 px 0.0025, 16+ px 0.0009 [0.0003-0.0020].
+- Outputs: analyses/io3_attn/results/checks.json; figures a1_pool_weights, a2_steps, a4_autocorr, a4_bins, a4_weight_maps (.png). Runs models/pinn/t3d/io3_eval_tattn8_{pre,post,rec,pool4,noself}.
+
+## Efficient-attention track, Part B: gridded patch-token stem, two value arms (IO; 2026-10-23; chl_cnn/ptok.py, train_pinn.py --t3d-stem patch, analyses/io3_attn/{report_b,leak_ptok,ptok_eval}.py)
+- Set-up:
+  - P = 4 (1,164 ocean patches of a 38 × 46 grid), ±8 days, token dim 64, 4 heads, 2 day-attention layers, interpolated score arm (A4a median lag 3.9 px ≥ 2);
+  - recipe otherwise as the conv baseline: batch 8, 60-epoch cosine, single seed 0.
+  - The two arms differ in each context day's value at a pixel:
+    - arm A (io3_ptok4): the pixel's own visible anomaly;
+    - arm B (io3_ptok4_lavg; bridge UI #8 / user #9): Gaussian normalised-convolution local average (σ 1.5 px, r ≤ 5 px), with conf(m) in the pixel term and the softmax over conf(m) > 0.
+  - Arm B ran first.
+- Checks:
+  - `--eval-only --init-from t3d_dil_c4_60ep_gdl100` gives val 0.130165 / test 0.130548, after both edits;
+  - leak tests on both smoke models: +1 on day t's hidden px, and +1 on the 7,955 px of t+2 that are observed but hidden by the donor mask, change tokens, token stats, day weights and hidden-px predictions by exactly 0;
+  - the positive control (all observed px of t+2) changes predictions by up to 0.64 (B) / 0.74 (A).
+- Val / test hidden-px MAE (val n = 1,458 days, 4,998,642 px; test 1,463 days; 0 non-finite predictions):
+  - arm A 0.128197 / 0.128637 (best epoch 53);
+  - arm B 0.130949 / 0.131993 (53);
+  - conv ±4 seeds 0 / 1 / 2: 0.130165 / 0.130113 / 0.130352 val;
+  - io2_tattn8 0.128594 / 0.127181;
+  - restarted 3-seed conv ensemble 0.127881 / 0.127895.
+- RMSE val / test: A 0.2219 / 0.2291; B 0.2257 / 0.2340 (conv seed 0 0.2263 val). Bias val / test: A −0.0172 / −0.0201; B −0.0205 / −0.0234.
+- Gradient ratio / corr, val, lags 1 / 2 / 4 px (8.40 M lag-1 pairs):
+  - A 0.546/0.633, 0.647/0.734, 0.741/0.815;
+  - B 0.527/0.608, 0.632/0.718, 0.731/0.806;
+  - conv seed 0 0.543/0.633, 0.643/0.734, 0.737/0.813;
+  - io2_tattn8 0.549/0.636, 0.652/0.738, 0.747/0.817.
+- Best val over epochs 11-30:
+  - A 0.12934 (epoch 29); B 0.13193 (26);
+  - conv 0.13283 / 0.13434 / 0.13327 (S30 0.0015);
+  - io2_tattn8_s30 0.13061.
+- Cost: A 80 s/epoch, B 81 s/epoch at batch 8 (conv 77 at batch 8, attention ±8 286 at batch 4); peak 9.7 / 9.8 GB allocated, 12.8 / 12.9 GB reserved; 807,141 / 807,157 parameters (backbone 605,379; position embedding 111,872).
+- Val MAE gain over conv seed 0, by bin:
+  - distance 1 / 2-3 / 4-7 / 8-15 / 16+ px: A +0.0004 / +0.0005 / +0.0010 / +0.0020 / +0.0064; B −0.0027 / −0.0029 / −0.0023 / −0.0010 / +0.0055;
+  - two-sided age 1 d / 2-3 d / 4-8 d / none: A +0.0021 / +0.0016 / +0.0026 / +0.0003; B −0.0011 / −0.0002 / +0.0008 / −0.0024.
+- Score terms (6 val days, softmax-domain pixel-days):
+  - A, 137,939 pixel-days: std patch score 2.15, pixel term 0.45, corr 0.70; share of logit variance 0.75 / 0.03; mean "no day" weight over ocean px 0.77, entropy 0.34;
+  - B, 740,618 pixel-days: std 1.70 / 1.24, corr 0.07; share 0.61 / 0.33; "no day" 0.42, entropy 1.11.
+- Outputs:
+  - analyses/io3_attn/results/{io3_ptok4,io3_ptok4_lavg,partb,leak_io3_smoke_ptok4_lavg,leak_io3_smoke_ptok4_own}.json;
+  - figures b_curves, b_bins, b_weight_maps_<run>_<date> (.png);
+  - queue ~/mind_the_chl_gap/logs/io3/queue.sh.
+
+## Efficient-attention track, io4: token-decoder stem and arm A with the blend off (IO; 2026-10-23; chl_cnn/tokdec.py, train_pinn.py --t3d-stem tokdec [--tokdec-blend], ptok.py HOOKS["no_blend"], analyses/io4_tokdec/)
+- Set-up:
+  - io4_tokdec: per-day 12 channels (CHL z-anomaly x visible, visible mask, 9 physics x ocean mask, ocean mask) -> shared Conv2d(12, 128, kernel 8, stride 4, padding 2) on ptok's 38 x 46 grid (1,164 ocean patches), LayerNorm + day / position embeddings, 2 temporal self-attention blocks (4 heads), 4-head pooling with day t's token as query over all 17 tokens, [pooled, day-t token] -> Linear 256 -> 4 x 4 x 32, pixel shuffle, Conv 3x3 + GELU; backbone input 32 decoded + 11 day-t + 7 static = 50 ch; no blend, no FiLM.
+  - io4_tokdec_blend: + io3 arm-A blend / mass / entropy from the same output tokens (53 ch).
+  - Recipe as io3_ptok4: batch 8, 60-epoch cosine, lr 1e-3, wd 1e-4, --ckpt-from 10, single seed 0. D 128 / C 32 fit at batch 8.
+  - Assumption: the physics channels of the token input are multiplied by the ocean mask (wind / air temperature are finite over land); day t's backbone channels are unchanged.
+- Checks:
+  - `--eval-only --init-from t3d_dil_c4_60ep_gdl100` gives val 0.130165 / test 0.130548 after the edits;
+  - io3_ptok4 eval-only with hooks off reproduces its preds.npz (max |Δ| 0, same NaN mask);
+  - leak tests on both smoke models (val day 2018-02-17): +1 on day t's 7,516 hidden px and +1 on the 7,955 donor-hidden observed px of t+2 change embeddings, tokens, pooling weights, decoded channels, blend / mass / entropy (Job 3) and hidden-px predictions by exactly 0;
+  - the positive control (all 10,499 observed px of t+2) changes hidden-px predictions by up to 0.48 (tokdec) / 0.79 (tokdec_blend).
+- Val / test hidden-px MAE (val n = 1,458 days, 4,998,642 px; test 1,463 days; 0 non-finite predictions):
+  - Job 1, io3_ptok4 eval-only with blend 0, mass 0, entropy 0 (FiLM and day t unchanged): 0.145147 / 0.147829 (+0.01498 / +0.01728 vs conv seed 0). Indicative only (distribution shift);
+  - io4_tokdec 0.128208 / 0.128698 (best epoch 56);
+  - io4_tokdec_blend 0.127585 / 0.127977 (best epoch 54);
+  - io3_ptok4 0.128197 / 0.128637; io2_tattn8 0.128594 / 0.127181; conv ±4 seed 0 0.130165 / 0.130548; 3-seed conv ensemble 0.127881 / 0.127895.
+- RMSE val / test: tokdec 0.2214 / 0.2292; tokdec_blend 0.2204 / 0.2274; Job 1 0.2452 / 0.2571. Bias val / test: −0.0160 / −0.0190; −0.0179 / −0.0196; −0.0288 / −0.0317.
+- Gradient ratio / corr, val, lags 1 / 2 / 4 px (8.40 M lag-1 pairs):
+  - tokdec 0.545/0.631, 0.646/0.735, 0.741/0.817;
+  - tokdec_blend 0.548/0.631, 0.649/0.733, 0.745/0.815;
+  - Job 1 0.476/0.571, 0.571/0.674, 0.671/0.766;
+  - io3_ptok4 0.546/0.633, 0.647/0.734, 0.741/0.815; conv seed 0 0.543/0.633, 0.643/0.734, 0.737/0.813.
+- Best val over epochs 11-30 / 11-60: tokdec 0.13108 (ep 25) / 0.12821; tokdec_blend 0.13013 (26) / 0.12759; io3_ptok4 0.12934 / 0.12820; io2_tattn8 0.13061 / 0.12859; conv seeds 0.1328-0.1343 / 0.1301-0.1304 (S30 0.0015, S60 0.00024).
+- Cost at batch 8: tokdec 97 s/epoch, 11.0 GB allocated / 14.4 GB reserved, 1,418,787 params (stem 796,704, of which position embedding 223,744); tokdec_blend 108 s/epoch, 11.0 / 15.0 GB, 1,453,637; io3_ptok4 80 s/epoch, 9.7 / 12.8 GB, 807,141.
+- Val MAE gain over conv seed 0, by bin (tokdec / tokdec_blend / io3_ptok4):
+  - two-sided age 1 d (n 3.51 M): +0.0021 / +0.0026 / +0.0021; 2-3 d (1.05 M): +0.0017 / +0.0021 / +0.0016; 4-8 d (0.35 M): +0.0023 / +0.0038 / +0.0026; none (0.09 M): −0.0001 / +0.0021 / +0.0003;
+  - past-only age 1 d / 2-3 d / 4-8 d / none: +0.0021 / +0.0016 / +0.0026 / +0.0007; +0.0027 / +0.0019 / +0.0033 / +0.0026; +0.0022 / +0.0016 / +0.0024 / +0.0011;
+  - distance 1 / 2-3 / 4-7 / 8-15 / 16+ px: +0.0005 / +0.0011 / +0.0013 / +0.0014 / +0.0059; +0.0004 / +0.0005 / +0.0009 / +0.0022 / +0.0094; +0.0005 / +0.0005 / +0.0010 / +0.0020 / +0.0063.
+- Pooling weights (mean over heads; 1,458 val days x 1,164 ocean patches):
+  - tokdec: day t 0.110, t−1 0.185, t+1 0.155, |offset| > 4 0.164; patches with any visible px on a day vs none: t−1 0.422 vs 0.105, t+1 0.370 vs 0.082, ±8 0.014-0.015 vs 0.013-0.021;
+  - tokdec_blend: day t 0.082, t∓1 0.122 / 0.119, |offset| > 4 0.263;
+  - weight-map autocorrelation on the patch grid (98 val days, every 15th) drops below 0.5 at 1.85 patches ≈ 7.4 px (IQR 1.65-2.06 patches) for tokdec, 1.69 patches for tokdec_blend; rho at 1 / 2 / 4 / 8 patches (tokdec) 0.70 / 0.46 / 0.25 / 0.06.
+- Decoded context channels (6 val days x 32 channels): mean |Δ| between adjacent ocean px across patch edges / within patches, median 1.12 (q10-q90 1.01-1.32) for tokdec, 1.06 (0.96-1.17) for tokdec_blend.
+- Outputs:
+  - analyses/io4_tokdec/results/{io4_summary,io4_tokdec,io4_tokdec_blend,io4_eval_ptok4_noblend,io4_eval_ptok4_repro,leak_io4_smoke_tokdec,leak_io4_smoke_tokdec_blend}.json;
+  - figures io4_curves, io4_bins, io4_pool_weights, io4_decoded_2001-03-02, tokdec_schematic (.png);
+  - recorder data ~/mind_the_chl_gap/data/io4/<run>_maps_tokdec.npz; queue ~/mind_the_chl_gap/logs/io4/queue.sh (checks.sh before it).
+- Interpretation (hedged; single seeds):
+  - Without the blend, io4_tokdec matches io3_ptok4 on val (+0.00001) and test (+0.00006), within S60. The 1-px gradient and the 1-day and 2-3-day age bins are within 0.0002 of arm A. In these numbers, fine detail from neighbouring days does not appear to be lost through the tokens.
+  - With the blend, Job 3 is 0.00061 / 0.00066 below arm A on val / test, about 2.5 x S60. It is below the 3-seed conv ensemble on val (−0.0003) and slightly worse on test (+0.0001). Its largest bin gains are at 16+ px and at "no obs within ±8 d".
+  - Job 1's +0.017 rise shows that arm A's backbone depends on the blend inputs. Because of the distribution shift, it does not measure what the blend contributes.
+
+## Global input ablation of three IO gap-fillers (io5 Job 1; eval-only, val; chl_cnn/ablate.py, train_pinn.py --ablate, analyses/io5_ablation/)
+- Logged 2026-10-24 13:18 by the io5 queue (logs ~/mind_the_chl_gap/logs/io5/).
+- Models: conv ±4 `t3d_dil_c4_60ep_gdl100`, `io3_ptok4` (patch tokens, arm A), `io4_tokdec_blend`. Val, all 1,458 days, fixed hidden px; each model's Δ is against its own eval-only reproduction (io5_eval_<model>_base).
+- Groups, one at a time, on every window day (context days and day t): SST, salinity, MLD, SLA, currents (u + v), winds (u + v), air temp, all 9 physics; context-day CHL (value and visible mask 0 on every day ≠ t); day-t CHL (value and mask 0 on day t); static channels: DOY climatology, lat/lon, depth, year.
+- Replacements: physics `mean` = 0 in the z-scored input (the training mean); `doyclim` = the field's per-pixel day-of-year climatology over the training days (circular ±15-day window, NaN-aware), z-scored with the trainer's feature stats, NaN → 0 (cache ~/mind_the_chl_gap/data/io5/doyclim_io.npz). Static channels → their mean over ocean px of the training days.
+- Assumptions:
+  - `clim` replaces the static climatology channel and the per-day climatology the token stems subtract from CHL (clim3d). `clim_static` replaces the static channel only (token models).
+  - The --residual output base (climatology added to the output) is not an input and is unchanged. The sin/cos DOY channels were not ablated.
+  - Window days missing from the store stay 0 under doyclim, as the trainer gives them.
+  - Targets, hidden / observed masks and the residual diagnostics are untouched.
+- Checks: `--eval-only --init-from t3d_dil_c4_60ep_gdl100` (default flags, after the edit) val / test 0.130165 / 0.130548. Each ablation run checks its first val batch: ablated slots hold the replacement (doyclim against an independent numpy reference) and every other input value is unchanged (exact). 68 ablation evals; first-batch input check passed on 68; rows with non-finite predictions on hidden px: 0
+
+| model | val MAE | RMSE | bias | grad ratio / corr lag 1 | n days | n hidden px |
+|---|---|---|---|---|---|---|
+| conv ±4 (t3d_dil_c4_60ep_gdl100) | 0.130165 | 0.2263 | -0.0214 | 0.543 / 0.633 | 1458 | 4,998,642 |
+| patch tokens, arm A (io3_ptok4) | 0.128197 | 0.2219 | -0.0172 | 0.546 / 0.633 | 1458 | 4,998,642 |
+| token decoder + blend (io4_tokdec_blend) | 0.127585 | 0.2204 | -0.0179 | 0.548 / 0.631 | 1458 | 4,998,642 |
+
+ΔMAE (val hidden-px MAE, ln CHL; ablated − unablated), training-mean replacement:
+
+| group | conv | ptok4 | tdb |
+|---|---|---|---|
+| SST | +0.0180 | +0.0100 | +0.0087 |
+| salinity | +0.0007 | +0.0010 | +0.0007 |
+| MLD | +0.0000 | +0.0010 | +0.0008 |
+| SLA | +0.0007 | +0.0007 | +0.0008 |
+| currents (u, v) | +0.0041 | +0.0034 | +0.0042 |
+| winds (u, v) | +0.0015 | +0.0043 | +0.0030 |
+| air temp | +0.0123 | +0.0023 | +0.0018 |
+| all 9 physics | +0.0327 | +0.0229 | +0.0252 |
+| context-day CHL | +0.0348 | +0.0351 | +0.0352 |
+| day-t CHL | +0.0144 | +0.0150 | +0.0149 |
+| DOY clim (all paths) | +0.4151 | +0.4451 | +0.4382 |
+| DOY clim (static ch only) | - | +0.1504 | +0.1645 |
+| lat/lon | +0.0060 | +0.0021 | +0.0024 |
+| depth | +0.0104 | +0.0042 | +0.0063 |
+| year | +0.0001 | -0.0001 | -0.0000 |
+
+ΔMAE, DOY-climatology replacement (physics groups):
+
+| group | conv | ptok4 | tdb |
+|---|---|---|---|
+| SST | +0.0024 | +0.0021 | +0.0019 |
+| salinity | +0.0002 | +0.0001 | +0.0001 |
+| MLD | +0.0002 | +0.0007 | +0.0006 |
+| SLA | +0.0004 | +0.0004 | +0.0004 |
+| currents (u, v) | +0.0029 | +0.0027 | +0.0028 |
+| winds (u, v) | +0.0002 | +0.0010 | +0.0012 |
+| air temp | +0.0005 | +0.0003 | +0.0003 |
+| all 9 physics | +0.0083 | +0.0082 | +0.0093 |
+
+- Groups with the largest mean ΔMAE over the three models (mean mode): clim, clim_static, ctx_chl, physics.
+- Full per-model tables (RMSE, bias, gradient ratio / corr at lag 1, ΔMAE by distance and two-sided age bin, n): analyses/io5_ablation/results/job1_tables.md; rows in job1_table.csv.
+- Figures: analyses/io5_ablation/figures/job1_heatmap_mean.png, job1_bars.png, job1_dist_bins.png.
+- Caveat: an ablation shows what a trained model relies on at inference. It includes distribution shift (the model never saw the replaced values in training), and correlated inputs can stand in for each other. It is not a causal contribution of the input.
+- Interpretation: not written by the queue (pending review).
+
+## Physics loss λ 0.3 on the token-decoder + blend recipe (io5 Job 2, io5_tokdec_blend_up0p3; analyses/io5_ablation/report_job2.py)
+- Logged 2026-10-24 15:12 by the io5 queue.
+- Recipe: io4_tokdec_blend flags (batch 8, 60-epoch cosine, lr 1e-3, wd 1e-4, --ckpt-from 10, seed 0) + `--phys upwind --lam 0.3` (phys warm-up 3 epochs, L1 residual, K 500 m²/s, as earlier IO λ 0.3 runs). Single seed. Test scored once, at the checkpoint selected on val over epochs 11-60.
+- At 30 epochs only the per-epoch history exists (val MAE, RMSE, gradient lag 1, residual); lags 2 / 4, bins and test are for the selected checkpoint.
+
+Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954 hidden px. Residual |r| (upwind form, ln CHL / day): val px-days under real clouds 16,186,210, observed 6,822,242.
+
+### Per-epoch history at the best val epoch (val only)
+
+| run | window | best epoch | val MAE | val RMSE | grad ratio / corr lag 1 | val mean abs r cloud / obs | train data / phys loss | n epochs |
+|---|---|---|---|---|---|---|---|---|
+| token decoder + blend, λ 0.3 (io5) | 11-30 | 26 | 0.129816 | 0.2212 | 0.533 / 0.631 | 0.0389 / 0.0655 | 3.8321 / 0.0486 | 60 |
+| token decoder + blend, λ 0.3 (io5) | 11-60 | 52 | 0.127555 | 0.2200 | 0.545 / 0.630 | 0.0419 / 0.0673 | 3.7120 / 0.0514 | 60 |
+| token decoder + blend, λ 0 (io4) | 11-30 | 26 | 0.130135 | 0.2215 | 0.533 / 0.630 | 0.0494 / 0.0732 | 3.8351 / 0.0591 | 60 |
+| token decoder + blend, λ 0 (io4) | 11-60 | 54 | 0.127585 | 0.2204 | 0.548 / 0.631 | 0.0594 / 0.0792 | 3.7310 / 0.0669 | 60 |
+
+### Selected checkpoint (best val over epochs 11-60), scored once
+
+| run | split | MAE | Δ vs λ 0 | RMSE | bias | grad ratio / corr lag 1 | lag 2 | lag 4 | mean abs r cloud / obs | n hidden px |
+|---|---|---|---|---|---|---|---|---|---|---|
+| token decoder + blend, λ 0.3 (io5) | val | 0.127555 | -0.000031 | 0.2200 | -0.0175 | 0.545 / 0.630 | 0.646 / 0.732 | 0.742 / 0.815 | 0.0419 / 0.0673 | 4,998,642 |
+| token decoder + blend, λ 0 (io4) | val | 0.127585 | +0.000000 | 0.2204 | -0.0179 | 0.548 / 0.631 | 0.649 / 0.733 | 0.745 / 0.815 | 0.0594 / 0.0792 | 4,998,642 |
+| token decoder + blend, λ 0.3 (io5) | test | 0.128578 | +0.000601 | 0.2290 | -0.0194 | 0.562 / 0.631 | 0.665 / 0.737 | 0.759 / 0.820 | 0.0476 / 0.0783 | 5,522,954 |
+| token decoder + blend, λ 0 (io4) | test | 0.127977 | +0.000000 | 0.2274 | -0.0196 | 0.565 / 0.632 | 0.668 / 0.738 | 0.762 / 0.821 | 0.0642 / 0.0900 | 5,522,954 |
+
+### Val MAE by bin, selected checkpoints (Δ = λ 0.3 − λ 0)
+
+| bin | λ 0.3 MAE | λ 0 MAE | Δ | n hidden px |
+|---|---|---|---|---|
+| distance 1 px | 0.0770 | 0.0771 | -0.0001 | 1,213,097 |
+| distance 2-3 px | 0.1005 | 0.1005 | +0.0000 | 898,560 |
+| distance 4-7 px | 0.1188 | 0.1189 | -0.0001 | 1,048,246 |
+| distance 8-15 px | 0.1401 | 0.1400 | +0.0001 | 880,930 |
+| distance 16+ px | 0.2150 | 0.2151 | -0.0001 | 957,809 |
+| two-sided age 1 d | 0.1316 | 0.1316 | -0.0001 | 3,506,780 |
+| two-sided age 2-3 d | 0.1143 | 0.1144 | -0.0001 | 1,052,756 |
+| two-sided age 4-8 d | 0.1218 | 0.1211 | +0.0007 | 352,033 |
+| two-sided age none | 0.1495 | 0.1498 | -0.0003 | 87,073 |
+| past-only age 1 d | 0.1365 | 0.1366 | -0.0001 | 2,451,259 |
+| past-only age 2-3 d | 0.1179 | 0.1182 | -0.0002 | 1,368,813 |
+| past-only age 4-8 d | 0.1153 | 0.1151 | +0.0002 | 795,388 |
+| past-only age none | 0.1301 | 0.1297 | +0.0005 | 383,182 |
+
+Cost: λ 0.3 median 107 s/epoch, peak 11.0 GB allocated / 15.0 GB reserved; λ 0 108 s/epoch, 11.0 / 15.0 GB. Non-finite predictions on hidden px (val / test): λ 0.3 0 / 0.
+
+- Figures: analyses/io5_ablation/figures/job2_val_curves.png, job2_residual.png, job2_bins.png. Smoke test (1 epoch): io5_smoke_up0p3, log ~/mind_the_chl_gap/logs/io5/io5_smoke_up0p3.log.
+- Interpretation: not written by the queue (pending review). Single seed; earlier S60 between conv seeds was 0.00024.
+
+## Learned kriging and spatial token attention, io6 (IO; 2026-10-24; chl_cnn/krig.py, chl_cnn/krig_triton.py, chl_cnn/tokdec.py --tokdec-spatial, train_pinn.py --tokdec-krig [--krig-signed] / --tokdec-spatial, analyses/io6_kriging/)
+- Set-up (design: analyses/io6_kriging/DESIGN.md, revision 2026-10-24):
+  - K1 io6_tokdec_krig: io4 tokens + decoder; the own-pixel blend replaced by the learned-kriging stem. Stencil |dt| <= 4, 484 offsets (dt 0: disc r3 excluding the px, 28; |dt| 1-2: disc r5, 81 each; |dt| 3-4: 5 x 5 block + 8 points at r6, 33 each). Masked softmax over the visible keys (after donor masking) + a no-key slot per head; query / key / value features of DESIGN.md section 2 (advected offset with learned s, init 0.25; local visible density); relative-position bias per (offset, head); D 32, 4 heads, dv 16. 20 channels (attention output 16, estimate, spread, mass, entropy) -> backbone input 32 + 20 + 11 + 7 = 70 ch. No back-advected centring (--krig-advect implemented, not run).
+  - K1-signed io6_tokdec_krig_signed: K1 + a signed head pair, w = softmax(s+) − lambda softmax(s−), lambda = sigmoid (init 0.1); 3 more channels (signed estimate, sum softmax(s+), lambda sum softmax(s−)) -> 73 ch.
+  - spatial io6_tokdec_blend_spatial: io4_tokdec_blend + 2 pre-norm spatial self-attention blocks over the 1,164 pooled ocean-patch tokens (global, fused SDPA, 4 heads, D 128, learned relative-position bias per (patch offset, head); output projections zero-initialised).
+  - Recipe as io4_tokdec_blend: batch 8, 60-epoch cosine, lr 1e-3, wd 1e-4, --ckpt-from 10, single seed 0.
+  - Kriging implementation: fused Triton kernels (online softmax over all offsets per 16-px block, flash-style backward; tl.dot in tf32); the PyTorch streamed path (chunks, checkpointing) is the reference.
+- Checks:
+  - CPU unit tests (analyses/io6_kriging/test_krig.py): 19 of 19 passed; streamed vs dense masked softmax max |Δ| outputs 1.4e-06, gradients 4.8e-05 (relative); signed weights incl. no-key slots sum to 1 − lambda within 5.4e-07.
+  - GPU check (gpu_check.py, random inputs, batch 2): Triton vs PyTorch reference, max |Δ| outputs / max relative |Δ| gradients: K1_ieee 9.5e-07 / 3.6e-05; K1_tf32 6.1e-05 / 1.7e-03; K1_signed_ieee 1.4e-06 / 2.7e-05; K1_signed_tf32 1.3e-04 / 2.1e-03.
+  - leak test io6_init_krig (val day 2018-02-17, 7516 hidden px): +1 on day t's hidden px and on t+2's donor-hidden observed px: max change 0.0e+00 over every recorded tensor and the hidden-px predictions; positive control (all observed px of t+2): hidden-px predictions change by up to 0.015; no_leak True.
+  - leak test io6_init_krig_signed (val day 2018-02-17, 7516 hidden px): +1 on day t's hidden px and on t+2's donor-hidden observed px: max change 0.0e+00 over every recorded tensor and the hidden-px predictions; positive control (all observed px of t+2): hidden-px predictions change by up to 0.018; no_leak True.
+  - leak test io6_init_spatial (val day 2018-02-17, 7516 hidden px): +1 on day t's hidden px and on t+2's donor-hidden observed px: max change 0.0e+00 over every recorded tensor and the hidden-px predictions; positive control (all observed px of t+2): hidden-px predictions change by up to 0.012; no_leak True.
+- Val / test hidden-px MAE (val n = 1,458 days, 4,998,642 px; test 1,463 days, 5,522,954 px):
+  - K1 (io6_tokdec_krig) 0.128261 / 0.129415 (best epoch 58); vs io4_tokdec_blend +0.00068 / +0.00144; vs conv seed 0 -0.00190 / -0.00113; non-finite predictions 0 / 0;
+  - spatial (io6_tokdec_blend_spatial) 0.127060 / 0.127516 (best epoch 58); vs io4_tokdec_blend -0.00053 / -0.00046; vs conv seed 0 -0.00311 / -0.00303; non-finite predictions 0 / 0;
+  - K1-signed (io6_tokdec_krig_signed) 0.129143 / 0.129664 (best epoch 58); vs io4_tokdec_blend +0.00156 / +0.00169; vs conv seed 0 -0.00102 / -0.00088; non-finite predictions 0 / 0;
+  - references: io4_tokdec_blend 0.127585 / 0.127977; io3_ptok4 0.128197 / 0.128637; io2_tattn8 0.128594 / 0.127181; conv ±4 seed 0 0.130165 / 0.130548; 3-seed conv ensemble 0.127881 / 0.127895.
+- RMSE val / test, bias val / test: K1 (io6_tokdec_krig) 0.2218 / 0.2309, -0.0171 / -0.0200; spatial (io6_tokdec_blend_spatial) 0.2189 / 0.2262, -0.0151 / -0.0172; K1-signed (io6_tokdec_krig_signed) 0.2237 / 0.2313, -0.0180 / -0.0202; io4_tokdec_blend 0.2204 / 0.2274, -0.0179 / -0.0196.
+- Gradient ratio / corr, val, lags 1 / 2 / 4 px (8.40 M lag-1 pairs):
+  - K1 (io6_tokdec_krig) 0.546/0.632, 0.646/0.734, 0.741/0.815;
+  - spatial (io6_tokdec_blend_spatial) 0.546/0.629, 0.647/0.732, 0.743/0.815;
+  - K1-signed (io6_tokdec_krig_signed) 0.544/0.631, 0.644/0.733, 0.738/0.814;
+  - io4_tokdec_blend 0.548/0.631, 0.649/0.733, 0.745/0.815;
+  - conv ±4 seed 0 0.543/0.633, 0.643/0.734, 0.737/0.813;
+- Best val over epochs 11-30 / 11-60: K1 (io6_tokdec_krig) 0.12966 (ep 26) / 0.12826 (ep 58); spatial (io6_tokdec_blend_spatial) 0.12968 (ep 29) / 0.12706 (ep 58); K1-signed (io6_tokdec_krig_signed) 0.13017 (ep 25) / 0.12914 (ep 58); io4_tokdec_blend 0.13013 (ep 26) / 0.12759 (ep 54) (S30 0.0015, S60 0.00024 from the conv seeds).
+- Cost at batch 8 (median s / epoch incl. the val pass, peak GB allocated / reserved, params): K1 (io6_tokdec_krig) 145 s, 11.1 / 14.9 GB, 1,437,424; spatial (io6_tokdec_blend_spatial) 128 s, 11.2 / 16.0 GB, 1,773,197; K1-signed (io6_tokdec_krig_signed) 159 s, 11.1 / 15.0 GB, 1,441,235; io4_tokdec_blend 108 s, 11.0 / 15.0 GB, 1,453,637.
+- Smokes (2 epochs, batch 8): io6_smoke_krig 146, 145 s/epoch, 11.1 / 14.9 GB, 1,437,424 params; io6_smoke_spatial 129, 128 s/epoch, 11.2 / 15.9 GB, 1,773,197 params; io6_smoke_krig_signed 160, 159 s/epoch, 11.1 / 15.0 GB, 1,441,235 params.
+- Val MAE gain over conv seed 0, by bin (K1 (io6_tokdec_krig) / spatial (io6_tokdec_blend_spatial) / K1-signed (io6_tokdec_krig_signed) / io4_tokdec_blend):
+  - distance 1 / 2-3 / 4-7 / 8-15 / 16+ px (n 1.21 M, 0.90 M, 1.05 M, 0.88 M, 0.96 M): +0.0006 / +0.0005 / +0.0007 / +0.0008 / +0.0073; +0.0005 / +0.0007 / +0.0013 / +0.0027 / +0.0110; +0.0005 / +0.0003 / +0.0001 / -0.0003 / +0.0045; +0.0004 / +0.0005 / +0.0009 / +0.0022 / +0.0094.
+  - two-sided age 1 d / 2-3 d / 4-8 d / none (n 3.51 M, 1.05 M, 0.35 M, 0.09 M): +0.0023 / +0.0013 / +0.0010 / -0.0013; +0.0032 / +0.0027 / +0.0036 / +0.0012; +0.0013 / +0.0006 / +0.0003 / -0.0010; +0.0026 / +0.0021 / +0.0038 / +0.0021.
+  - past-only age 1 d / 2-3 d / 4-8 d / none (n 2.45 M, 1.37 M, 0.80 M, 0.38 M): +0.0025 / +0.0016 / +0.0016 / -0.0000; +0.0034 / +0.0026 / +0.0034 / +0.0021; +0.0014 / +0.0007 / +0.0010 / -0.0002; +0.0027 / +0.0019 / +0.0033 / +0.0026.
+- Val hidden px by visible kriging-stencil keys: >= 1 key n 4,359,604, no key n 639,038; keys per hidden px mean 48.9, median 29. MAE >= 1 key / no key:
+  - K1 (io6_tokdec_krig) 0.11085 / 0.24706;
+  - spatial (io6_tokdec_blend_spatial) 0.11014 / 0.24249;
+  - K1-signed (io6_tokdec_krig_signed) 0.11130 / 0.25087;
+  - io4_tokdec_blend 0.11041 / 0.24476; conv seed 0 0.11147 / 0.25768.
+- Kriging weights, K1 (io6_tokdec_krig) (146 val days, 487,572 hidden px, 417,788 with >= 1 key; mean over the value heads):
+  - weight share by dt −4..+4: 0.017 / 0.029 / 0.068 / 0.141 / 0.124 / 0.148 / 0.072 / 0.030 / 0.016; total on real keys 0.645;
+  - mean weight per visible key by dt −4..+4: 0.0050 / 0.0086 / 0.0079 / 0.0164 / 0.0558 / 0.0174 / 0.0087 / 0.0092 / 0.0047;
+  - mean weight per visible key by |dSST| 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25-1.5 / 1.75-2 / 2.25-3 / >3 K (store SST quantised to 0.25 K): 0.0205 / 0.0111 / 0.0052 / 0.0032 / 0.0022 / 0.0018 / 0.0017 / 0.0020 / 0.0026 (n 8.66 M, 10.27 M, 3.46 M, 1.07 M, 0.38 M, 0.23 M, 0.07 M, 0.04 M, 0.04 M);
+  - learned s 0.944 (init 0.25); no-key logits +0.09, +0.22, +0.17, +0.17.
+- Kriging weights, K1-signed (io6_tokdec_krig_signed) (146 val days, 487,572 hidden px, 417,788 with >= 1 key; mean over the value heads):
+  - weight share by dt −4..+4: 0.017 / 0.029 / 0.070 / 0.141 / 0.150 / 0.162 / 0.081 / 0.032 / 0.017; total on real keys 0.699;
+  - mean weight per visible key by dt −4..+4: 0.0049 / 0.0084 / 0.0081 / 0.0165 / 0.0675 / 0.0191 / 0.0097 / 0.0099 / 0.0052;
+  - mean weight per visible key by |dSST| 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25-1.5 / 1.75-2 / 2.25-3 / >3 K (store SST quantised to 0.25 K): 0.0225 / 0.0119 / 0.0055 / 0.0034 / 0.0024 / 0.0020 / 0.0020 / 0.0024 / 0.0033 (n 8.66 M, 10.27 M, 3.46 M, 1.07 M, 0.38 M, 0.23 M, 0.07 M, 0.04 M, 0.04 M);
+  - learned s 0.977 (init 0.25); lambda 0.297 (init 0.1); no-key logits +0.32, +0.14, +0.24, +0.17, +0.13, -0.35.
+  - signed pair, weight share by dt (softmax(s+) / softmax(s−)): 0.000:0.039 / 0.001:0.050 / 0.015:0.109 / 0.067:0.140 / 0.088:0.118 / 0.083:0.153 / 0.021:0.110 / 0.003:0.048 / 0.000:0.028.
+- Kriging spread vs |error|, K1 (io6_tokdec_krig) (val hidden px with >= 1 key, n 4,359,604): Spearman 0.267; MAE by spread decile 0.1132 (lowest) ... 0.2536 (highest); Spearman by distance bin 0.387 / 0.332 / 0.270 / 0.232 / 0.163.
+- Kriging spread vs |error|, K1-signed (io6_tokdec_krig_signed) (val hidden px with >= 1 key, n 4,359,604): Spearman 0.282; MAE by spread decile 0.1010 (lowest) ... 0.2569 (highest); Spearman by distance bin 0.379 / 0.333 / 0.283 / 0.254 / 0.203.
+- Outputs:
+  - analyses/io6_kriging/results/{io6_summary, io6_tokdec_krig, io6_tokdec_blend_spatial, io6_tokdec_krig_signed, gpu_check, unit_tests, leak_*}.json;
+  - figures io6_curves, io6_bins, io6_variogram_lines_<run>, io6_variogram_maps_<run>, io6_weight_vs_sst, io6_learned_params, io6_spread_vs_error (.png);
+  - recorder data ~/mind_the_chl_gap/data/io6/<run>_{krigall,diag}.npz; queue ~/mind_the_chl_gap/logs/io6/queue.sh.
