@@ -31,7 +31,7 @@ read logs with `tail`/`grep` instead of whole files, and keep reports short.
 | io6_tokdec_krig_signed (kriging + signed head pair) | 0.1291 | 0.1297 | 0.544 / 0.631 | 159 |
 | conv ±4 (t3d_dil_c4_60ep_gdl100) | 0.1302 | 0.1305 | — | — |
 
-io6 val MAE split by whether a hidden pixel has a visible kriging key (n = 146 diag days, 487,572 hidden px, 417,788 with ≥ 1 key):
+io6 val MAE split by whether a hidden pixel has a visible kriging-stencil key (all 1,458 val days; 4,998,642 hidden px, 4,359,604 with ≥ 1 key):
 
 | | ≥ 1 key | no key |
 |---|---|---|

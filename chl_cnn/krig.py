@@ -42,6 +42,10 @@ Implementations (same model, both verified: analyses/io6_kriging/test_krig.py on
 s0 = --krig-s0 fixed, shifts clipped at +-4 px), i.e. where a parcel at p on day t would be on day d; observed values and the visible mask
 stay exact. The offset features are then the actual offsets from p.
 
+Fewer than 9 physics features (blk7, 2026-10-26: the Black Sea stores have 8, no air_temp): the gather volume's physics block is
+zero-padded to 9 channels, so the key MLP's padded input column is always 0 (no contribution, zero gradient) and the Triton / PyTorch
+paths are unchanged; the query MLP takes the n_feat real fields. With 9 features (IO) nothing changes.
+
 HOOKS["keep_ctx"] (default False): keep the last forward's context (gather volume, query terms, final m / l) for weights_chunks().
 """
 import math
@@ -157,7 +161,8 @@ class KrigStem(nn.Module):
     def __init__(self, n_feat, n_static, T, t_index, ocean, sst_index, sss_index, u_index, v_index, vel, dim=32, heads=4, dv=16, chunk=32,
                  signed=False, advect=False, s0=0.25, compile=True, impl="triton"):
         super().__init__()
-        assert n_feat == N_PHYS and dim % heads == 0
+        assert n_feat <= N_PHYS and dim % heads == 0
+        self.n_feat = n_feat                                                       # < 9: physics block zero-padded to 9 in the volume
         assert t_index - MAX_LAG >= 0 and t_index + MAX_LAG < T, "the kriging stencil needs |dt| <= 4 inside the window"
         self.ti, self.dim, self.heads, self.dv, self.chunk = t_index, dim, heads, dv, chunk
         self.signed, self.advect, self.s0, self.use_compile = signed, advect, float(s0), compile
@@ -228,9 +233,10 @@ class KrigStem(nn.Module):
         oc = self.ocean.float()
         vis = (xf[:, -1] > 0.5).float() * day_ok[:, sl].float().view(B, -1, 1, 1) * oc   # (B, 9, H, W)
         anom = (xf[:, -2] - clim3d[:, sl].float()) * vis
-        phys = xf[:, :N_PHYS] * oc                                                 # (B, 9, 9, H, W)
+        phys = xf[:, :self.n_feat] * oc                                            # (B, n_feat, 9, H, W)
         dens = F.avg_pool2d(vis.view(B * (2 * L + 1), 1, H, W), 3, stride=1, padding=1, count_include_pad=True).view(B, -1, H, W)
-        vol = torch.cat([phys, dens.unsqueeze(1), vis.unsqueeze(1), anom.unsqueeze(1)], 1)       # (B, 12, 9, H, W)
+        physv = phys if self.n_feat == N_PHYS else F.pad(phys, (0, 0, 0, 0, 0, 0, 0, N_PHYS - self.n_feat))   # zero channels after the real ones
+        vol = torch.cat([physv, dens.unsqueeze(1), vis.unsqueeze(1), anom.unsqueeze(1)], 1)      # (B, 12, 9, H, W)
         R = self.R
         vol = F.pad(vol, (R, R, R, R)).reshape(B, 12, -1)                          # (B, 12, 9 Lp)
         # query side, day t

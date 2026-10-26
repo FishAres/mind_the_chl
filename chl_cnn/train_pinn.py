@@ -174,6 +174,14 @@ Learned kriging and spatial token attention (io6 track, 2026-10-24; analyses/io6
   --tokdec-spatial N   with --t3d-stem tokdec: N pre-norm spatial self-attention blocks over the pooled ocean-patch tokens of each sample (global,
                   fused SDPA, --tokdec-heads heads, width --tokdec-dim, learned 2D relative-position bias per (patch offset, head); output
                   projections zero-initialised) between the temporal pooling and the decoder (chl_cnn/tokdec.py).
+  --physmem [--physmem-blend-k 8] [--physmem-stride2]   io7 (chl_cnn/physmem.py): with --t3d-stem tokdec --tokdec-blend; tokens over the whole
+                  window (e.g. --context 15 --feat-context 15), blend on +-K only; past-only physics summaries of day t (wind-stress curl, Ekman
+                  pumping, alongshore stress, SSTA, dMLD over [t-30, t-1] and [t-60, t-31]) added to every day token. --physmem-stride2: even
+                  offsets only beyond +-K.
+  --rw-loss [--rw-cap 10] [--rw-draws 3]   io8 (chl_cnn/rwloss.py): day-t hidden-px loss weighted per (distance to visible x key-count) cell so the
+                  training fake-cloud px match the training days' real-cloud px (postrun.py bins); training only, scoring unchanged.
+  --bsmem         blk8 (chl_cnn/bsmem.py; --store blk4, tokdec + blend): physmem's token net with a Black Sea memory (Danube / Dniester /
+                  Dnieper discharge x mouth proximity, MLD deepening, shortwave anomaly; 30- / 60-day past means; coverage).
 
 Prior-knowledge terms (v1), each off by default
   --src-clim      S += d/dt of the day-of-year ln CHL climatology (seasonal source, no parameters)
@@ -413,7 +421,18 @@ def parse(argv=None):
     p.add_argument("--krig-impl", choices=["triton", "torch"], default="triton", help="--tokdec-krig: fused Triton kernels or the PyTorch path")
     p.add_argument("--krig-prec", choices=["tf32", "ieee", "tf32x3"], default="tf32", help="--krig-impl triton: tl.dot input precision")
     p.add_argument("--tokdec-spatial", type=int, default=0, help="--t3d-stem tokdec: spatial self-attention blocks over the pooled patch tokens")
+    from . import analog as AN                                 # io7 analog tokens (--analog*, default off = unchanged)
+    AN.add_args(p)
+    from . import wmattn as WMA                                # io7 water-mass attention (--wm-*, default off = unchanged)
+    WMA.add_args(p)
+    from . import physmem as PMEM                              # io7 physics memory (--physmem*, default off = unchanged)
+    PMEM.add_args(p)
+    from . import rwloss as RWL                                # io8 real-cloud loss reweighting (--rw-loss*, default off = unchanged)
+    RWL.add_args(p)
+    from . import bsmem as BSM                                 # blk8 Black Sea physics memory (--bsmem, default off = unchanged)
+    BSM.add_args(p)
     a = p.parse_args(argv)
+    AN.check_args(p, a)
     if a.width is None:
         a.width = 32 if a.model == "unet" or (a.model == "temporal3d" and a.t3d_backbone == "unet") else 64
     a.context_before = a.context if a.context_before is None else a.context_before
@@ -465,6 +484,10 @@ def parse(argv=None):
         p.error("--krig-signed / --krig-advect need --tokdec-krig")
     if a.tokdec_krig and (a.context_before < 4 or a.context_after < 4 or a.krig_dim % a.krig_heads):
         p.error("--tokdec-krig needs a window of at least t-4..t+4 and --krig-dim divisible by --krig-heads")
+    WMA.check_args(p, a)                                       # io7 --wm-attn (no-op without it)
+    PMEM.check_args(p, a)                                      # io7 --physmem (no-op without it)
+    RWL.check_args(p, a)                                       # io8 --rw-loss (no-op without it)
+    BSM.check_args(p, a)                                       # blk8 --bsmem (no-op without it)
     if a.attn_query_memory and not (a.memory and a.t3d_stem == "attn"):
         p.error("--attn-query-memory needs --memory and --t3d-stem attn")
     if a.stoch and (a.stoch_train_samples < 2 or a.recipe != "none"):
@@ -548,7 +571,16 @@ RESUME_NEW_DEFAULTS = {"donor_exclude": 0, "eval_only": False, "init_from": None
                        "stoch_val_samples": 4, "stoch_final_samples": 8,
                        "leak_day": None, "leak_offset": 0, "leak_delta": 1.0, "leak_what": "hidden", "ablate": None, "ablate_mode": "mean",
                        "tokdec_krig": False, "krig_dim": 32, "krig_heads": 4, "krig_dv": 16, "krig_chunk": 32, "krig_signed": False,
-                       "krig_advect": False, "krig_s0": 0.25, "krig_impl": "triton", "krig_prec": "tf32", "tokdec_spatial": 0}
+                       "krig_advect": False, "krig_s0": 0.25, "krig_impl": "triton", "krig_prec": "tf32", "tokdec_spatial": 0,
+                       "physmem": False, "physmem_blend_k": 8, "physmem_stride2": False}
+from .analog import RESUME_DEFAULTS as _ANALOG_DEFAULTS       # io7 analog tokens
+RESUME_NEW_DEFAULTS.update(_ANALOG_DEFAULTS)
+from .wmattn import RESUME_DEFAULTS as _WM_DEFAULTS           # io7 water-mass attention
+RESUME_NEW_DEFAULTS.update(_WM_DEFAULTS)
+from .rwloss import RESUME_DEFAULTS as _RW_DEFAULTS          # io8 real-cloud loss reweighting
+RESUME_NEW_DEFAULTS.update(_RW_DEFAULTS)
+from .bsmem import RESUME_DEFAULTS as _BSM_DEFAULTS          # blk8 Black Sea physics memory
+RESUME_NEW_DEFAULTS.update(_BSM_DEFAULTS)
 
 
 def main(argv=None):
@@ -719,7 +751,10 @@ def main(argv=None):
     offsets = [k for k in range(-a.context, a.context + 1) if k != 0]
     # temporal3d day window t-B..t+A (B = A = --context by default, i.e. the symmetric window)
     win_offs = list(range(-a.context_before, a.context_after + 1))
-    NB = {k: T(T2.neighbour_index(TIMES, k)) for k in sorted(set(offsets) | set(win_offs) | {-1, 1}) if k != 0}
+    if a.physmem:                                              # io7 --physmem-stride2: even offsets only beyond +-K (default: unchanged)
+        from . import physmem as PMEM
+        win_offs = PMEM.window_offsets(a.context_before, a.context_after, a.physmem_blend_k, a.physmem_stride2)
+    NB = {k: T(T2.neighbour_index(TIMES, k)) for k in sorted(set(offsets) | set(win_offs) | {-1, 1} | (set(range(-4, 5)) if a.rw_loss else set())) if k != 0}
     clim_np, doy_bin = (T2.doy_climatology(y, obs, tr) if a.clim else (None, None))
     CLIMg = (T(clim_np) - chl_mu) / chl_sd if a.clim else None
     BINg = T(doy_bin) if a.clim else None
@@ -770,6 +805,8 @@ def main(argv=None):
             in_ch = a.tokdec_ch + (3 if a.tokdec_blend else 0) + c_day + n_static
             if a.tokdec_krig:                                  # io6: kriging channels (attention output, estimate, spread, mass, entropy [, signed 3])
                 in_ch += a.krig_dv + 4 + (3 if a.krig_signed else 0)
+            if a.wm_attn:                                      # io7: water-mass attention channels (chl_cnn/wmattn.py)
+                in_ch += a.wm_dv + 4
     if recipe:
         if a.model == "temporal3d":
             c_day, n_days, n_static = 8, 3, 3
@@ -1046,6 +1083,10 @@ def main(argv=None):
             if a.stoch:                                        # point prediction of the stochastic model: median of samples (fixed noise)
                 return sample_median(predict_samples(model, bi, hid, a.stoch_val_samples, gen=fixed_gen()).float())
             if a.t3d_stem in ("patch", "tokdec"):
+                if a.analog:                                   # io7: the batch's store days for the analog draw (chl_cnn/analog.py)
+                    model.analog.set_days(bi)
+                if a.physmem or a.bsmem:                       # io7 / blk8: past-only physics summaries of the batch's target days (physmem.py / bsmem.py)
+                    model.mem_in = PMT.batch(bi)
                 x3d, xs = make_inputs_3d(bi, hid)
                 if a.ablate:                                   # io5: one input group replaced on every input path (x3d, static, clim3d)
                     x3d, xs, cw = ablate_inputs(bi, x3d, xs, clim_window(bi))
@@ -1137,6 +1178,8 @@ def main(argv=None):
                       f"target z in this batch: mean {RYg[bi].mean().item():.4f}, finite-target px {int((RYg[bi] != 0).sum())}", flush=True)
             return ((pz[:, 1] - RYg[bi]) ** 2).mean()
         w = OBSg[bi].float() if no_chl_t else hid.float() + a.vis_weight * (OBSg[bi] & ~hid).float()
+        if a.rw_loss and model.training:                       # io8: day-t hidden px weighted by their (distance x key) cell (chl_cnn/rwloss.py)
+            w = RW_W[rw_cells(bi, hid)] * hid.float() + a.vis_weight * (OBSg[bi] & ~hid).float()
         num = (pixel_loss(pz[:, 1], (Yg[bi] - chl_mu) / chl_sd) * w).sum(); den = w.sum()
         if a.grad_weight > 0:
             gs, gc = grad_terms(pz[:, 1], bi, hid)
@@ -1265,11 +1308,42 @@ def main(argv=None):
             print(f"kriging stem: {model.krig.K} stencil offsets (|dt| <= 4), D {a.krig_dim}, heads {a.krig_heads}{' + signed pair' if a.krig_signed else ''}, "
                   f"dv {a.krig_dv}, {model.krig.n_out} channels, advect {a.krig_advect}, impl {model.krig.impl} ({a.krig_prec}), "
                   f"{model.krig.N} ocean px; kriging params {count_params(model.krig)}", flush=True)
+        elif a.wm_attn:                                        # io7: TokDecNet (blend as passed) + water-mass attention (chl_cnn/wmattn.py)
+            from . import wmattn as WMA
+            model = WMA.build(a, c_day, n_static, n_days, win_offs.index(0), T(ocean), P=a.ptok_patch, dim=a.tokdec_dim, ch=a.tokdec_ch,
+                              heads=a.tokdec_heads, layers=a.tokdec_layers, blend=a.tokdec_blend, sst_index=a.features.index("sst"),
+                              spatial=a.tokdec_spatial, backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3,
+                              dilations=dilations).to(dev)
+        elif a.physmem or a.bsmem:                             # io7: TokDecNet (blend on +-K) over win_offs + physics-memory tokens (chl_cnn/physmem.py)
+            from . import physmem as PMEM
+            if a.bsmem:                                        # blk8: Black Sea memory table (chl_cnn/bsmem.py), same token net with 12 other channels
+                from . import bsmem as BSM
+                from . import store_blk4 as SB4
+                rnames = json.loads((SB4.store_path() / "river_names.json").read_text())
+                PMT = BSM.BSMemTable(lambda f, t=slice(None): rd(f, t), TIMES, tr, ocean, lat, lon, a.ptok_patch, np.asarray(d["river_dist"])[:, ys, xs],
+                                     rnames, log=lambda s: print(s, flush=True))
+            else:
+                PMT = PMEM.MemTable(lambda f, t=slice(None): rd(sname(f), t), TIMES, tr, ocean, lat, lon, a.ptok_patch,   # sname: blk "sst" -> "sst32"
+                                    log=lambda s: print(s, flush=True), wind_is_stress=a.store in ("blk", "blk4"))        # blk: u/v_wind are stress (Pa)
+            model = PMEM.PhysMemTokDecNet(c_day, n_static, win_offs, T(ocean), blend_k=a.physmem_blend_k, P=a.ptok_patch, dim=a.tokdec_dim,
+                                          ch=a.tokdec_ch, heads=a.tokdec_heads, layers=a.tokdec_layers, sst_index=a.features.index("sst"),
+                                          spatial=a.tokdec_spatial, backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3,
+                                          dilations=dilations, mem_ch=(BSM.N_MEM if a.bsmem else PMEM.N_MEM)).to(dev)
+            print(f"{'bsmem' if a.bsmem else 'physmem'}: token days {win_offs[0]:+d}..{win_offs[-1]:+d} ({n_days}), blend days {len(model.bsel)} (|d - t| <= {a.physmem_blend_k}); "
+                  f"memory params {count_params(model.mem)}", flush=True)
         else:
             model = TokDecNet(c_day, n_static, n_days, win_offs.index(0), T(ocean), P=a.ptok_patch, dim=a.tokdec_dim, ch=a.tokdec_ch,
                               heads=a.tokdec_heads, layers=a.tokdec_layers, blend=a.tokdec_blend, sst_index=a.features.index("sst"),
                               backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3, dilations=dilations,
                               **(dict(spatial=a.tokdec_spatial) if a.tokdec_spatial else {})).to(dev)
+        if a.analog:                                           # io7: analog-token cross-attention on the pooled tokens (chl_cnn/analog.py)
+            from . import analog as AN
+            t_an = time.time()
+            bank = AN.build_bank(model, TIMES, tr, feats, chl_z, lambda i: OBSg[i], lambda i: CLIMg[BINg[i]], val_test=(va, te))
+            AN.attach(model, bank, k=a.analog_k, window=a.analog_window, gap=a.analog_gap, seed=a.analog_seed, train_seed=a.seed)
+            print(f"analog tokens: bank {len(bank.days)} training days x {model.Np} patches x {bank.data.shape[-1]} "
+                  f"({bank.data.numel() * 2 / 2**30:.2f} GiB fp16, {time.time() - t_an:.0f} s), K {a.analog_k}, +-{a.analog_window} DOY, "
+                  f"gap {a.analog_gap} d; analog params {count_params(model.analog)}", flush=True)
         n_bb = count_params(model.backbone)
         print(f"token-decoder stem: {n_days} days, P {a.ptok_patch} -> {model.Np} ocean patches of {model.nPy} x {model.nPx}, dim {a.tokdec_dim}, "
               f"heads {a.tokdec_heads}, layers {a.tokdec_layers}, decoded ch {a.tokdec_ch}, blend {a.tokdec_blend}"
@@ -1309,6 +1383,40 @@ def main(argv=None):
     sched = make_sched()
     scaler = torch.amp.GradScaler(enabled=not a.no_amp)
     print(f"model {a.model} in_ch {in_ch} params {count_params(model)}  residual pixels/day (stencil) {int(st.sum())}", flush=True)
+
+    RW_INFO = None                                             # io8 --rw-loss: cell weights from training fake / real-cloud px (chl_cnn/rwloss.py)
+    if a.rw_loss:
+        from . import rwloss as RWL
+        RW_BIN = RWL.Binner(dev)
+
+        def rw_cells(bi, hid):
+            """(B, H, W) (distance x key) cell of every px under the model-input visibility of the batch (hidden masks hid)."""
+            return RW_BIN.cells(OBSg[bi] & ~hid, {k: nb_masks(bi, k)[2] for k in range(-4, 5) if k != 0})
+
+        if not a.eval_only:
+            t_rw = time.time(); rw_rng = np.random.default_rng(a.seed + 1000003)        # own generator: training draws / order unchanged
+            cnt = {"real": torch.zeros(RWL.N_CELL, dtype=torch.float64, device=dev), "fake": torch.zeros(RWL.N_CELL, dtype=torch.float64, device=dev)}
+            with torch.no_grad():
+                for _ in range(a.rw_draws):                    # as train_epoch's donor draw
+                    if a.donor_exclude > 0:
+                        dn = tr[C.seasonal_donor_indices(TIMES[tr], rw_rng, a.donor_window, exclude=a.donor_exclude)] if a.donor_window > 0 \
+                            else tr[C.donor_indices(len(tr), rw_rng, times=TIMES[tr], exclude=a.donor_exclude)]
+                    else:
+                        dn = tr[C.seasonal_donor_indices(TIMES[tr], rw_rng, a.donor_window)] if a.donor_window > 0 else tr[C.donor_indices(len(tr), rw_rng)]
+                    HIDg[T(tr)] = T(obs[tr] & ~obs[dn]); DONg[T(tr)] = T(dn)          # overwritten by every training epoch
+                    for b in range(0, len(tr), 32):
+                        bi = T(tr[b:b + 32]); hid = HIDg[bi]
+                        cell = rw_cells(bi, hid)
+                        cnt["fake"] += torch.bincount(cell[hid], minlength=RWL.N_CELL).double()
+                        cnt["real"] += torch.bincount(cell[OCEANg & ~OBSg[bi]], minlength=RWL.N_CELL).double()
+            rw_w, RW_INFO = RWL.cap_weights(cnt["real"].cpu().numpy(), cnt["fake"].cpu().numpy(), a.rw_cap)
+            RW_INFO.update(draws=a.rw_draws, n_train_days=len(tr), seconds=time.time() - t_rw)
+            (out / "rw_loss.json").write_text(json.dumps(RW_INFO, indent=1))
+            RW_W = torch.as_tensor(rw_w, dtype=torch.float32, device=dev)
+            print(f"rw-loss: {a.rw_draws} draws x {len(tr)} training days, {RW_INFO['n_fake']} fake / {RW_INFO['n_real']} real-cloud px, "
+                  f"cap {a.rw_cap}: max w {RW_INFO['max_weight']:.3f}, {RW_INFO['n_cells_at_cap']} cells at cap, Kish ESS {RW_INFO['kish_ess_frac']:.3f}, "
+                  f"TV fake-real {RW_INFO['tv_fake_vs_real']:.3f} -> {RW_INFO['tv_reweighted_vs_real']:.3f}, uncovered real mass "
+                  f"{RW_INFO['uncovered_real_mass']:.4f} ({RW_INFO['seconds']:.0f} s)\n{RWL.table(RW_INFO)}", flush=True)
 
     TRAIN_DEQ = dict(iters=0.0, res=0.0); EVAL_DEQ = dict(iters=0.0, res=0.0, res_max=0.0)
 
@@ -1720,6 +1828,10 @@ def main(argv=None):
                grid=[H, W], n_ocean=int(ocean.sum()), lat_ascending=not lat_desc, peak_gpu_gb=torch.cuda.max_memory_allocated() / 1e9, peak_gpu_reserved_gb=torch.cuda.max_memory_reserved() / 1e9)
     if a.ablate:
         cfg["ablate_info"] = ABL_INFO
+    if a.rw_loss:                                              # io8: weights and distributions (also in rw_loss.json)
+        cfg["rw_loss_info"] = RW_INFO
+    if a.bsmem:                                                # blk8: memory inputs report and summary stats
+        cfg["bsmem_info"] = dict(report=PMT.report, stats=PMT.stats)
     (out / "config.json").write_text(json.dumps(cfg, indent=1))
     (out / "history.json").write_text(json.dumps(dict(hist, source=source_info) if source_info else hist))
     (out / "metrics.json").write_text(json.dumps(dict(

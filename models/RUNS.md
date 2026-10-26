@@ -1,6 +1,6 @@
 # Training runs: index
 
-Generated 2026-10-24 17:42 by `python -m chl_cnn.runs_index` (413 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
+Generated 2026-10-26 11:07 by `python -m chl_cnn.runs_index` (446 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
 
 - **val / test MAE**: hidden-pixel MAE in ln CHL (fake clouds from a donor day). Best val epoch; test at that epoch. Only comparable within one region and one `val_stride` / `donor_exclude` setting.
 - **settings**: non-default flags only (see the trainer docstrings). `stop_epoch=N`: the schedule spans `epochs` but training stopped at N.
@@ -99,7 +99,7 @@ Generated 2026-10-24 17:42 by `python -m chl_cnn.runs_index` (413 runs). What ea
 | deq_unroll_k1 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1449 | 0.1484 | 12 | 2026-10-11 | done, weights |
 | deq_and24 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1581 | 0.1632 | 12 | 2026-10-13 | done, weights |
 
-## pinn/t3d (197 runs)
+## pinn/t3d (230 runs)
 
 | run | region | settings | val MAE | test MAE | epochs | finished | status |
 |---|---|---|---|---|---|---|---|
@@ -120,6 +120,11 @@ Generated 2026-10-24 17:42 by `python -m chl_cnn.runs_index` (413 runs). What ea
 | blk4_t3d_c4_gdl100_sl_lam1_b16_stop12 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=1.0 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 stop_epoch=12 | 0.1978 | 0.1893 | 12 | 2026-10-17 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1536 | 0.1504 | 50 | 2026-10-18 | done, weights |
 | blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_w96 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=4 lam=0.3 vis_weight=0.1 grad_weight=100.0 width=96 donor_window=15 epochs=50 year_input blocks=8 phys=semi-lagrangian batch=16 | 0.1527 | 0.1480 | 50 | 2026-10-18 | done, weights |
+| blk4_physmem | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1423 | 0.1366 | 60 | 2026-10-26 | done, weights |
+| blk4_tokdec_blend | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1432 | 0.1359 | 60 | 2026-10-26 | done, weights |
+| blk4_tokdec_blend_spatial | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1412 | 0.1340 | 60 | 2026-10-26 | done, weights |
+| blk4_tokdec_krig | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1452 | 0.1365 | 60 | 2026-10-26 | done, weights |
+| blk4_tokdec_krig_signed | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1441 | 0.1355 | 60 | 2026-10-26 | done, weights |
 | t3d_dil_c2 | Indian Ocean | temporal3d feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1406 | 0.1434 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4 | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1378 | 0.1398 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4_60ep | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=60 year_input phys=upwind batch=8 | 0.1331 | 0.1344 | 60 | 2026-10-14 | done, weights |
@@ -300,6 +305,34 @@ Generated 2026-10-24 17:42 by `python -m chl_cnn.runs_index` (413 runs). What ea
 | io6_tokdec_blend_spatial | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1271 | 0.1275 | 60 | 2026-10-24 | done, weights |
 | io6_tokdec_krig | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1283 | 0.1294 | 60 | 2026-10-24 | done, weights |
 | io6_tokdec_krig_signed | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1291 | 0.1297 | 60 | 2026-10-24 | done, weights |
+| io6_leak_io7_leakinit_analog_base | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_analog | nan | 0.3150 |  | 2026-10-25 | done, weights |
+| io6_leak_io7_leakinit_analog_hidden | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_analog | nan | 0.3150 |  | 2026-10-25 | done, weights |
+| io6_leak_io7_leakinit_analog_masked_tp2 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_analog | nan | 0.3150 |  | 2026-10-25 | done, weights |
+| io6_leak_io7_leakinit_analog_obs_tp2 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_analog | nan | 0.3150 |  | 2026-10-25 | done, weights |
+| io6_tokdec_blend_spatial_s1 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1267 | 0.1272 | 60 | 2026-10-25 | done, weights |
+| io6_tokdec_blend_spatial_s2 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1266 | 0.1274 | 60 | 2026-10-25 | done, weights |
+| io7_analog | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1271 | 0.1277 | 60 | 2026-10-25 | done, weights |
+| io7_analog_smoke | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 stop_epoch=2 | 0.1679 | 0.1677 | 2 | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_base | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_hidden | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_masked_tm12 | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_masked_tp12 | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_masked_tp2 | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_obs_tp12 | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_leakinit_physmem_obs_tp2 | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_leakinit_physmem | nan | 0.2862 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_wmattn_init_base | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_wmattn_init | nan | 0.2859 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_wmattn_init_hidden | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_wmattn_init | nan | 0.2859 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_wmattn_init_masked_tp2 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_wmattn_init | nan | 0.2859 |  | 2026-10-25 | done, weights |
+| io7_leak_io7_wmattn_init_obs_tp2 | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io7_wmattn_init | nan | 0.2859 |  | 2026-10-25 | done, weights |
+| io7_leakinit_analog | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=4 stop_epoch=1 | 0.2773 | 0.3150 | 1 | 2026-10-25 | done, weights |
+| io7_leakinit_physmem | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 stop_epoch=1 | 0.2572 | 0.2862 | 1 | 2026-10-25 | done, weights |
+| io7_physmem | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1266 | 0.1269 | 60 | 2026-10-25 | done, weights |
+| io7_smoke_physmem | Indian Ocean | temporal3d feat=9 ctx=15 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 stop_epoch=2 | 0.1862 | 0.1780 | 2 | 2026-10-25 | done, weights |
+| io7_wmattn | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 | 0.1280 | 0.1283 | 60 | 2026-10-25 | done, weights |
+| io7_wmattn_init | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 stop_epoch=1 | 0.2616 | 0.2859 | 1 | 2026-10-25 | done, weights |
+| io7_wmattn_smoke | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 stop_epoch=2 | 0.1657 | 0.1663 | 2 | 2026-10-25 | done, weights |
+| io7_regcheck_default_eval | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=t3d_dil_c4_60ep_gdl100 | nan | 0.1305 |  | 2026-10-26 | done, weights |
+| io7_regcheck_spatial_eval | Indian Ocean | temporal3d feat=9 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=upwind batch=8 init_from=io6_tokdec_blend_spatial | nan | 0.1275 |  | 2026-10-26 | done, weights |
 
 ## pinn/upstream (14 runs)
 

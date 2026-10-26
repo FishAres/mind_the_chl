@@ -891,3 +891,179 @@ Cost: λ 0.3 median 107 s/epoch, peak 11.0 GB allocated / 15.0 GB reserved; λ 0
   - analyses/io6_kriging/results/{io6_summary, io6_tokdec_krig, io6_tokdec_blend_spatial, io6_tokdec_krig_signed, gpu_check, unit_tests, leak_*}.json;
   - figures io6_curves, io6_bins, io6_variogram_lines_<run>, io6_variogram_maps_<run>, io6_weight_vs_sst, io6_learned_params, io6_spread_vs_error (.png);
   - recorder data ~/mind_the_chl_gap/data/io6/<run>_{krigall,diag}.npz; queue ~/mind_the_chl_gap/logs/io6/queue.sh.
+
+## Phase 0 evaluations, bridge #25 (IO; 2026-10-25 01:00 UTC; eval only; analyses/io7/phase0/, analyses/io7/postrun.py, analyses/io7/keys.py)
+- Assumptions:
+  - Key counts (≥ 1 visible kriging-stencil key, |dt| ≤ 4, 484 offsets) computed on CPU from the visibility masks (analyses/io7/keys.py); identical to the io6_tokdec_krig recorder pass on all 48.8 M val+test ocean px-days (0 differences).
+  - Regions (no IO region mask in the repo): Arabian Sea: lat >= 5, lon < 78 (incl. Gulf of Aden, Gulf of Oman, Persian Gulf, Laccadive Sea); Bay of Bengal: lat >= 5, lon >= 78 (incl. Andaman Sea west of 90 E); Equatorial and south: lat < 5 (5 S-5 N).
+  - "io3 attention" = io3_ptok4 (patch tokens, arm A). Conv ±4 seeds = io2_base_eval (seed 0), io2_seed1, io2_seed2.
+  - Real-cloud reweighting: hidden-px errors weighted so the joint (distance to nearest day-t visible px bin × key-count bin) distribution matches the val days' real-cloud px (ocean, not observed; n 17,084,105); distance bins 1, 2-3, 4-7, 8-15, 16-31, 32+ px; key bins 0, 1-4, 5-19, 20-59, 60+; cells with < 5 hidden px dropped. Assumes errors are exchangeable between fake-cloud and real-cloud px within a cell. The same val target is applied to test.
+- 1. io6_tokdec_blend_spatial val MAE on no-key hidden px (639,038 px, 1458 days) by region: Arabian Sea 0.2699 (n 486,511); Bay of Bengal 0.1790 (n 88,691); Equatorial and south 0.1219 (n 63,836).
+  - By month (all regions): Jan 0.275 (n 71,003), Feb 0.275 (n 69,618), Mar 0.246 (n 84,072), Apr 0.165 (n 65,698), May 0.174 (n 49,182), Jun 0.194 (n 14,833), Jul 0.202 (n 14,434), Aug 0.290 (n 19,845), Sep 0.275 (n 23,410), Oct 0.282 (n 58,883), Nov 0.250 (n 92,234), Dec 0.245 (n 75,826).
+  - Month × region: min 0.096, max 0.366; cells with < 5 px: 0 of 36. Table: results/phase0.json item1; figure figures/p0_nokey_month_region.png.
+- 2. Spatial attention weights of io6_tokdec_blend_spatial (146 val days, every 10th val position; all 1164 ocean-patch queries; uniform weight 1/Np = 8.59e-04). Mean weight per (query, key) pair, head mean:
+  - block 1 by distance (patches): 0 1.05e-03, 1 2.85e-03, 2 1.98e-03, 3-4 1.51e-03, 5-8 1.11e-03, 9-16 8.59e-04, 17-32 7.32e-04, 33+ 7.73e-04; self weight share 0.001, share within ≤ 2 patches 0.043.
+  - block 1 by |ΔSST| (K): 0 9.95e-04, 0.25 9.51e-04, 0.5 8.96e-04, 0.75 8.62e-04, 1.0 8.39e-04, 1.25-1.5 8.19e-04, 1.75-2.0 7.99e-04, 2.25-3.0 7.83e-04, >3.0 7.76e-04.
+  - block 2 by distance (patches): 0 1.39e-03, 1 2.95e-03, 2 2.07e-03, 3-4 1.69e-03, 5-8 1.11e-03, 9-16 8.46e-04, 17-32 7.20e-04, 33+ 7.90e-04; self weight share 0.001, share within ≤ 2 patches 0.045.
+  - block 2 by |ΔSST| (K): 0 1.01e-03, 0.25 9.57e-04, 0.5 8.96e-04, 0.75 8.59e-04, 1.0 8.34e-04, 1.25-1.5 8.13e-04, 1.75-2.0 7.95e-04, 2.25-3.0 7.82e-04, >3.0 7.76e-04.
+  - pairs per distance bin: 0 169,944, 1 1,268,740, 2 1,804,268, 3-4 6,614,676, 5-8 18,499,076, 9-16 55,480,000, 17-32 92,129,504, 33+ 21,848,608. Figures figures/p0_spatial_attn_bins.png (incl. |ΔSST| within distance bins), p0_spatial_attn_offsets.png.
+- 3-4. Val / test MAE (val n 4,998,642 hidden px, 1458 days; test n 5,522,954, 1463 days); key split n val ≥ 1 key 4,359,604, no key 639,038:
+
+| model | val | test | val ≥ 1 key | val no key | test ≥ 1 key | test no key | val rw | test rw | preds |
+|---|---|---|---|---|---|---|---|---|---|
+| io6_tokdec_blend_spatial | 0.12706 | 0.12752 | 0.11014 | 0.24249 | 0.11502 | 0.26879 | 0.15182 | 0.16962 | float32 |
+| io4_tokdec_blend | 0.12759 | 0.12798 | 0.11041 | 0.24476 | 0.11516 | 0.27281 | 0.15258 | 0.17071 | float32 |
+| io3_ptok4 | 0.12820 | 0.12864 | 0.11053 | 0.24870 | 0.11539 | 0.27835 | 0.15377 | 0.17264 | float32 |
+| io2_base_eval | 0.13016 | 0.13055 | 0.11147 | 0.25768 | 0.11636 | 0.29094 | 0.15700 | 0.17716 | float32 |
+| io2_seed1 | 0.13011 | 0.13019 | 0.11156 | 0.25669 | 0.11635 | 0.28664 | 0.15686 | 0.17599 | float32 |
+| io2_seed2 | 0.13035 | 0.12996 | 0.11145 | 0.25932 | 0.11620 | 0.28544 | 0.15741 | 0.17564 | float32 |
+| ens6_mean | 0.12520 | 0.12539 | 0.10790 | 0.24323 | 0.11250 | 0.27109 | 0.15027 | 0.16826 | mean |
+
+- Ensemble (ens6_mean, per-px mean of 6) − io6_tokdec_blend_spatial: val -0.00186, test -0.00213; rw val -0.00155, test -0.00136. Gradient ratio/corr lag 1 val: ensemble 0.531/0.644, io6_tokdec_blend_spatial 0.546/0.629.
+- Real-cloud reweighting: uncovered real-cloud mass 0.0000; cells used 29 of 30. Test with the test days' own real-cloud target instead: io6_tokdec_blend_spatial 0.15154, io4_tokdec_blend 0.15230, io3_ptok4 0.15357, io2_base_eval 0.15678, io2_seed1 0.15609, io2_seed2 0.15576, ens6_mean 0.14971. Figures figures/p0_models_mae.png, p0_rw_cells.png.
+
+## io7 postrun: io6_tokdec_blend_spatial_s1 (IO; 2026-10-25 01:00 UTC; analyses/io7/postrun.py)
+- Run: t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, seed 1, epochs 60, batch 8, best_epoch 48. Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954.
+- Val / test MAE 0.126741 / 0.127239; RMSE 0.2180 / 0.2249; bias -0.0150 / -0.0170; non-finite 0 / 0.
+- Δ vs io6_tokdec_blend_spatial (0.127060 / 0.127516): val -0.00032, test -0.00028; ≥ 1 key -0.00020 / -0.00014; no key -0.00114 / -0.00183; real-cloud rw -0.00049 / -0.00071.
+- Δ vs io4_tokdec_blend (0.127585 / 0.127977): val -0.00084, test -0.00074; ≥ 1 key -0.00047 / -0.00029; no key -0.00341 / -0.00584; real-cloud rw -0.00125 / -0.00179.
+- Key split val / test: ≥ 1 key 0.10994 (n 4,359,604) / 0.11488 (n 5,074,031); no key 0.24135 (n 639,038) / 0.26697 (n 448,923).
+- Real-cloud reweighted MAE val / test: 0.15133 / 0.16892 (target: val real-cloud px, n 17,084,105; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15104); io6_tokdec_blend_spatial 0.15182 / 0.16962, io4_tokdec_blend 0.15258 / 0.17071.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.549/0.631, 0.652/0.733, 0.748/0.816; test 0.568/0.632, 0.671/0.738, 0.766/0.821 (val lag-1 pairs 8,403,189).
+- Val MAE gain over conv ±4 seed 0 by distance to visible px (conv − run): 1 px +0.00049 (n 1,213,097), 2-3 px +0.00074 (n 898,560), 4-7 px +0.00168 (n 1,048,246), 8-15 px +0.00337 (n 880,930), 16+ px +0.01161 (n 957,809).
+
+## io7 postrun: io6_tokdec_blend_spatial_s2 (IO; 2026-10-25 03:12 UTC; analyses/io7/postrun.py)
+- Run: t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, seed 2, epochs 60, batch 8, best_epoch 58. Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954.
+- Val / test MAE 0.126605 / 0.127352; RMSE 0.2184 / 0.2257; bias -0.0170 / -0.0171; non-finite 0 / 0.
+- Δ vs io6_tokdec_blend_spatial (0.127060 / 0.127516): val -0.00045, test -0.00016; ≥ 1 key -0.00018 / -0.00014; no key -0.00230 / -0.00043; real-cloud rw -0.00080 / -0.00029.
+- Δ vs io4_tokdec_blend (0.127585 / 0.127977): val -0.00098, test -0.00062; ≥ 1 key -0.00045 / -0.00029; no key -0.00457 / -0.00445; real-cloud rw -0.00156 / -0.00137.
+- Key split val / test: ≥ 1 key 0.10996 (n 4,359,604) / 0.11488 (n 5,074,031); no key 0.24019 (n 639,038) / 0.26836 (n 448,923).
+- Real-cloud reweighted MAE val / test: 0.15102 / 0.16933 (target: val real-cloud px, n 17,084,105; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15130); io6_tokdec_blend_spatial 0.15182 / 0.16962, io4_tokdec_blend 0.15258 / 0.17071.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.542/0.631, 0.643/0.734, 0.739/0.816; test 0.561/0.632, 0.663/0.738, 0.758/0.821 (val lag-1 pairs 8,403,189).
+- Val MAE gain over conv ±4 seed 0 by distance to visible px (conv − run): 1 px +0.00038 (n 1,213,097), 2-3 px +0.00066 (n 898,560), 4-7 px +0.00160 (n 1,048,246), 8-15 px +0.00335 (n 880,930), 16+ px +0.01264 (n 957,809).
+
+## io7 postrun: io7_physmem (IO; 2026-10-25 06:25 UTC; analyses/io7/postrun.py)
+- Run: t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, seed 0, epochs 60, batch 8, best_epoch 58. Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954.
+- Val / test MAE 0.126563 / 0.126886; RMSE 0.2179 / 0.2246; bias -0.0138 / -0.0161; non-finite 0 / 0.
+- Δ vs io6_tokdec_blend_spatial (0.127060 / 0.127516): val -0.00050, test -0.00063; ≥ 1 key -0.00005 / +0.00001; no key -0.00353 / -0.00782; real-cloud rw -0.00097 / -0.00218.
+- Δ vs io4_tokdec_blend (0.127585 / 0.127977): val -0.00102, test -0.00109; ≥ 1 key -0.00032 / -0.00014; no key -0.00580 / -0.01184; real-cloud rw -0.00173 / -0.00326.
+- Key split val / test: ≥ 1 key 0.11009 (n 4,359,604) / 0.11502 (n 5,074,031); no key 0.23896 (n 639,038) / 0.26097 (n 448,923).
+- Real-cloud reweighted MAE val / test: 0.15085 / 0.16745 (target: val real-cloud px, n 17,084,105; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15018); io6_tokdec_blend_spatial 0.15182 / 0.16962, io4_tokdec_blend 0.15258 / 0.17071.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.547/0.629, 0.649/0.732, 0.745/0.815; test 0.564/0.629, 0.667/0.735, 0.762/0.820 (val lag-1 pairs 8,403,189).
+- Val MAE gain over conv ±4 seed 0 by distance to visible px (conv − run): 1 px +0.00044 (n 1,213,097), 2-3 px +0.00054 (n 898,560), 4-7 px +0.00134 (n 1,048,246), 8-15 px +0.00331 (n 880,930), 16+ px +0.01322 (n 957,809).
+
+## io7 postrun: io7_wmattn (IO; 2026-10-25 10:27 UTC; analyses/io7/postrun.py)
+- Run: t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, seed 0, epochs 60, batch 8, best_epoch 44. Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954.
+- Val / test MAE 0.127964 / 0.128345; RMSE 0.2194 / 0.2261; bias -0.0144 / -0.0140; non-finite 0 / 0.
+- Δ vs io6_tokdec_blend_spatial (0.127060 / 0.127516): val +0.00090, test +0.00083; ≥ 1 key +0.00080 / +0.00054; no key +0.00163 / +0.00411; real-cloud rw +0.00099 / +0.00132.
+- Δ vs io4_tokdec_blend (0.127585 / 0.127977): val +0.00038, test +0.00037; ≥ 1 key +0.00053 / +0.00039; no key -0.00065 / +0.00009; real-cloud rw +0.00023 / +0.00023.
+- Key split val / test: ≥ 1 key 0.11094 (n 4,359,604) / 0.11556 (n 5,074,031); no key 0.24411 (n 639,038) / 0.27290 (n 448,923).
+- Real-cloud reweighted MAE val / test: 0.15281 / 0.17094 (target: val real-cloud px, n 17,084,105; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15259); io6_tokdec_blend_spatial 0.15182 / 0.16962, io4_tokdec_blend 0.15258 / 0.17071.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.540/0.632, 0.642/0.734, 0.738/0.815; test 0.559/0.633, 0.663/0.739, 0.758/0.821 (val lag-1 pairs 8,403,189).
+- Val MAE gain over conv ±4 seed 0 by distance to visible px (conv − run): 1 px -0.00035 (n 1,213,097), 2-3 px -0.00005 (n 898,560), 4-7 px +0.00075 (n 1,048,246), 8-15 px +0.00207 (n 880,930), 16+ px +0.00925 (n 957,809).
+
+## io7 postrun: io7_analog (IO; 2026-10-25 13:01 UTC; analyses/io7/postrun.py)
+- Run: t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, seed 0, epochs 60, batch 8, best_epoch 58. Val n: 1458 days, 4,998,642 hidden px; test n: 1463 days, 5,522,954.
+- Val / test MAE 0.127096 / 0.127728; RMSE 0.2192 / 0.2268; bias -0.0144 / -0.0164; non-finite 0 / 0.
+- Δ vs io6_tokdec_blend_spatial (0.127060 / 0.127516): val +0.00004, test +0.00021; ≥ 1 key -0.00007 / -0.00008; no key +0.00074 / +0.00348; real-cloud rw +0.00018 / +0.00099.
+- Δ vs io4_tokdec_blend (0.127585 / 0.127977): val -0.00049, test -0.00025; ≥ 1 key -0.00034 / -0.00022; no key -0.00154 / -0.00053; real-cloud rw -0.00059 / -0.00009.
+- Key split val / test: ≥ 1 key 0.11007 (n 4,359,604) / 0.11494 (n 5,074,031); no key 0.24322 (n 639,038) / 0.27228 (n 448,923).
+- Real-cloud reweighted MAE val / test: 0.15200 / 0.17062 (target: val real-cloud px, n 17,084,105; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15213); io6_tokdec_blend_spatial 0.15182 / 0.16962, io4_tokdec_blend 0.15258 / 0.17071.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.548/0.630, 0.649/0.733, 0.745/0.815; test 0.566/0.632, 0.669/0.738, 0.763/0.821 (val lag-1 pairs 8,403,189).
+- Val MAE gain over conv ±4 seed 0 by distance to visible px (conv − run): 1 px +0.00061 (n 1,213,097), 2-3 px +0.00070 (n 898,560), 4-7 px +0.00149 (n 1,048,246), 8-15 px +0.00304 (n 880,930), 16+ px +0.01016 (n 957,809).
+
+## blk7 postrun: blk4_tokdec_blend_spatial (Black Sea 4 km; 2026-10-26 04:10 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, tokdec_krig False, krig_signed False, physmem False, physmem_stride2 False, context 8, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 59. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.141189 / 0.133981; RMSE 0.2313 / 0.2278; bias -0.0066 / -0.0235; non-finite 0 / 0.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01492, test -0.01691; ≥ 1 key -0.01450 / -0.01602; no key -0.02171 / -0.03261; real-cloud rw -0.01658 / -0.01930.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00860, test -0.00902; ≥ 1 key -0.00826 / -0.00818; no key -0.01396 / -0.02380; real-cloud rw -0.01069 / -0.01183.
+- Key split val / test: ≥ 1 key 0.13418 (n 1,000,176) / 0.12762 (n 1,042,846); no key 0.25408 (n 62,146) / 0.24627 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16460 / 0.16054 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15921); blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.556/0.665, 0.617/0.745, 0.690/0.819; test 0.593/0.687, 0.654/0.763, 0.726/0.835 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01675 (n 138,579), 2-3 px +0.01368 (n 117,729), 4-7 px +0.01235 (n 157,936), 8-15 px +0.01142 (n 179,608), 16+ px +0.01691 (n 468,470).
+
+## blk7 postrun: blk4_physmem (Black Sea 4 km; 2026-10-26 06:11 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, tokdec_krig False, krig_signed False, physmem True, physmem_stride2 False, context 15, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 55. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.142260 / 0.136556; RMSE 0.2320 / 0.2327; bias -0.0106 / -0.0311; non-finite 0 / 0.
+- Δ vs blk4_tokdec_blend_spatial (0.141189 / 0.133981): val +0.00107, test +0.00258; ≥ 1 key +0.00133 / +0.00255; no key -0.00310 / +0.00305; real-cloud rw +0.00074 / +0.00316.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01385, test -0.01434; ≥ 1 key -0.01317 / -0.01347; no key -0.02481 / -0.02956; real-cloud rw -0.01585 / -0.01614.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00753, test -0.00644; ≥ 1 key -0.00693 / -0.00563; no key -0.01706 / -0.02076; real-cloud rw -0.00996 / -0.00867.
+- Key split val / test: ≥ 1 key 0.13551 (n 1,000,176) / 0.13017 (n 1,042,846); no key 0.25097 (n 62,146) / 0.24932 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16533 / 0.16370 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.16247); blk4_tokdec_blend_spatial 0.16460 / 0.16054, blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.558/0.660, 0.618/0.739, 0.690/0.813; test 0.590/0.682, 0.650/0.757, 0.721/0.829 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01644 (n 138,579), 2-3 px +0.01221 (n 117,729), 4-7 px +0.01030 (n 157,936), 8-15 px +0.01102 (n 179,608), 16+ px +0.01579 (n 468,470).
+
+## blk7 postrun: blk4_tokdec_blend (Black Sea 4 km; 2026-10-26 07:28 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend True, tokdec_spatial 0, tokdec_krig False, krig_signed False, physmem False, physmem_stride2 False, context 8, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 59. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.143159 / 0.135924; RMSE 0.2354 / 0.2320; bias -0.0086 / -0.0256; non-finite 0 / 0.
+- Δ vs blk4_tokdec_blend_spatial (0.141189 / 0.133981): val +0.00197, test +0.00194; ≥ 1 key +0.00194 / +0.00181; no key +0.00244 / +0.00436; real-cloud rw +0.00270 / +0.00245.
+- Δ vs blk4_physmem (0.142260 / 0.136556): val +0.00090, test -0.00063; ≥ 1 key +0.00061 / -0.00074; no key +0.00554 / +0.00132; real-cloud rw +0.00196 / -0.00072.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01295, test -0.01497; ≥ 1 key -0.01256 / -0.01422; no key -0.01927 / -0.02825; real-cloud rw -0.01388 / -0.01686.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00663, test -0.00707; ≥ 1 key -0.00632 / -0.00637; no key -0.01152 / -0.01944; real-cloud rw -0.00799 / -0.00938.
+- Key split val / test: ≥ 1 key 0.13612 (n 1,000,176) / 0.12943 (n 1,042,846); no key 0.25651 (n 62,146) / 0.25063 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16730 / 0.16299 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.16177); blk4_tokdec_blend_spatial 0.16460 / 0.16054, blk4_physmem 0.16533 / 0.16370, blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.554/0.662, 0.615/0.742, 0.688/0.816; test 0.590/0.685, 0.650/0.761, 0.721/0.833 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01661 (n 138,579), 2-3 px +0.01290 (n 117,729), 4-7 px +0.01134 (n 157,936), 8-15 px +0.01119 (n 179,608), 16+ px +0.01311 (n 468,470).
+
+## blk7 postrun: blk4_tokdec_krig (Black Sea 4 km; 2026-10-26 09:11 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend False, tokdec_spatial 0, tokdec_krig True, krig_signed False, physmem False, physmem_stride2 False, context 8, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 53. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.145181 / 0.136485; RMSE 0.2385 / 0.2327; bias -0.0093 / -0.0285; non-finite 0 / 0.
+- Δ vs blk4_tokdec_blend_spatial (0.141189 / 0.133981): val +0.00399, test +0.00250; ≥ 1 key +0.00415 / +0.00212; no key +0.00148 / +0.00922; real-cloud rw +0.00497 / +0.00382.
+- Δ vs blk4_physmem (0.142260 / 0.136556): val +0.00292, test -0.00007; ≥ 1 key +0.00282 / -0.00043; no key +0.00458 / +0.00618; real-cloud rw +0.00423 / +0.00065.
+- Δ vs blk4_tokdec_blend (0.143159 / 0.135924): val +0.00202, test +0.00056; ≥ 1 key +0.00221 / +0.00032; no key -0.00095 / +0.00486; real-cloud rw +0.00227 / +0.00137.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01093, test -0.01441; ≥ 1 key -0.01035 / -0.01390; no key -0.02022 / -0.02338; real-cloud rw -0.01162 / -0.01549.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00461, test -0.00651; ≥ 1 key -0.00412 / -0.00606; no key -0.01248 / -0.01458; real-cloud rw -0.00573 / -0.00801.
+- Key split val / test: ≥ 1 key 0.13832 (n 1,000,176) / 0.12974 (n 1,042,846); no key 0.25556 (n 62,146) / 0.25549 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16956 / 0.16436 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.16294); blk4_tokdec_blend_spatial 0.16460 / 0.16054, blk4_physmem 0.16533 / 0.16370, blk4_tokdec_blend 0.16730 / 0.16299, blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.559/0.658, 0.619/0.739, 0.690/0.813; test 0.598/0.682, 0.657/0.759, 0.728/0.832 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01634 (n 138,579), 2-3 px +0.01212 (n 117,729), 4-7 px +0.01039 (n 157,936), 8-15 px +0.00937 (n 179,608), 16+ px +0.00981 (n 468,470).
+
+## blk7 postrun: blk4_tokdec_krig_signed (Black Sea 4 km; 2026-10-26 11:04 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend False, tokdec_spatial 0, tokdec_krig True, krig_signed True, physmem False, physmem_stride2 False, context 8, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 53. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.144113 / 0.135502; RMSE 0.2369 / 0.2302; bias -0.0113 / -0.0243; non-finite 0 / 0.
+- Δ vs blk4_tokdec_blend_spatial (0.141189 / 0.133981): val +0.00292, test +0.00152; ≥ 1 key +0.00276 / +0.00137; no key +0.00555 / +0.00425; real-cloud rw +0.00424 / +0.00192.
+- Δ vs blk4_physmem (0.142260 / 0.136556): val +0.00185, test -0.00105; ≥ 1 key +0.00143 / -0.00118; no key +0.00866 / +0.00120; real-cloud rw +0.00351 / -0.00124.
+- Δ vs blk4_tokdec_blend (0.143159 / 0.135924): val +0.00095, test -0.00042; ≥ 1 key +0.00082 / -0.00044; no key +0.00312 / -0.00012; real-cloud rw +0.00154 / -0.00052.
+- Δ vs blk4_tokdec_krig (0.145181 / 0.136485): val -0.00107, test -0.00098; ≥ 1 key -0.00139 / -0.00076; no key +0.00407 / -0.00498; real-cloud rw -0.00072 / -0.00190.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01200, test -0.01539; ≥ 1 key -0.01174 / -0.01466; no key -0.01615 / -0.02836; real-cloud rw -0.01234 / -0.01738.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00567, test -0.00750; ≥ 1 key -0.00550 / -0.00681; no key -0.00841 / -0.01955; real-cloud rw -0.00645 / -0.00991.
+- Key split val / test: ≥ 1 key 0.13694 (n 1,000,176) / 0.12899 (n 1,042,846); no key 0.25963 (n 62,146) / 0.25052 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16884 / 0.16246 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.16112); blk4_tokdec_blend_spatial 0.16460 / 0.16054, blk4_physmem 0.16533 / 0.16370, blk4_tokdec_blend 0.16730 / 0.16299, blk4_tokdec_krig 0.16956 / 0.16436, blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.564/0.659, 0.625/0.740, 0.696/0.814; test 0.600/0.683, 0.660/0.760, 0.731/0.833 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01608 (n 138,579), 2-3 px +0.01208 (n 117,729), 4-7 px +0.01097 (n 157,936), 8-15 px +0.01178 (n 179,608), 16+ px +0.01121 (n 468,470).
+
+## io7 ensembles, bridge #29 step 1 (IO; 2026-10-26 19:08 UTC; eval only; analyses/io7/ensemble/report.py)
+- Assumptions:
+  - ens7_mean = per-px mean of io6_tokdec_blend_spatial, io4_tokdec_blend, io3_ptok4, io2_base_eval, io2_seed1, io2_seed2, io7_physmem. ens11_mean adds io6_tokdec_blend_spatial_s1, io6_tokdec_blend_spatial_s2, io7_wmattn, io7_analog: every IO run with a postrun result in analyses/io7/results/ (all 60-epoch IO recipe runs). Other full-length IO runs with preds.npz (e.g. io6_tokdec_krig, io6_tokdec_krig_signed, io4_tokdec, io2_tattn8, io5_tokdec_blend_up0p3) are not included.
+  - Val halves by year: A = (2001, 2013) (728 days, 2,022,116 hidden px), B = (2007, 2018) (730 days, 2,976,526 hidden px). Year split chosen over alternate days because adjacent days share clouds and fields.
+  - Fitted weights: over all 11 members, minimising hidden-px MAE on one half (SLSQP on sqrt(r² + ε²), ε 1e-3 then 1e-4; starts: uniform and each member-dominant vertex; lowest true MAE kept; weights < 1e-4 set to 0, renormalised). fitA = fit on half A.
+  - Scoring as analyses/io7/postrun.py (rw = real-cloud reweighted, val real-cloud target applied to test too). Non-finite member preds on hidden px: 0.
+
+| model set | val | test | val ≥ 1 key | val no key | test no key | val rw | test rw | grad ratio/corr lag 1 val |
+|---|---|---|---|---|---|---|---|---|
+| io6_tokdec_blend_spatial | 0.12706 | 0.12752 | 0.11014 | 0.24249 | 0.26879 | 0.15182 | 0.16962 | 0.546/0.629 |
+| ens6_mean | 0.12520 | 0.12539 | 0.10790 | 0.24323 | 0.27109 | 0.15027 | 0.16826 | 0.531/0.644 |
+| ens7_mean | 0.12464 | 0.12483 | 0.10766 | 0.24054 | 0.26706 | 0.14935 | 0.16690 | 0.531/0.644 |
+| ens11_mean | 0.12418 | 0.12444 | 0.10750 | 0.23796 | 0.26441 | 0.14852 | 0.16592 | 0.531/0.644 |
+| fitA_ens11 | 0.12402 | 0.12430 | 0.10773 | 0.23518 | 0.25965 | 0.14796 | 0.16477 | 0.533/0.642 |
+| fitB_ens11 | 0.12399 | 0.12428 | 0.10749 | 0.23658 | 0.26216 | 0.14814 | 0.16531 | 0.531/0.644 |
+
+- n: val 4,998,642 hidden px (1458 days; ≥ 1 key 4,359,604, no key 639,038); test 5,522,954 (1463 days). fitA/fitB val rows include their own fitting half (in-sample); see the half table for out-of-sample.
+- Gradient ratio/corr lags 1, 2, 4 px (val; test): ens6_mean 0.531/0.644, 0.633/0.745, 0.730/0.823; 0.549/0.648, 0.653/0.751, 0.749/0.830; ens7_mean 0.531/0.644, 0.633/0.745, 0.730/0.823; 0.548/0.648, 0.653/0.751, 0.749/0.830; ens11_mean 0.531/0.644, 0.633/0.745, 0.731/0.824; 0.548/0.647, 0.653/0.751, 0.750/0.830; fitA_ens11 0.533/0.642, 0.636/0.743, 0.734/0.823; 0.551/0.644, 0.655/0.748, 0.752/0.829; fitB_ens11 0.531/0.644, 0.634/0.745, 0.732/0.824; 0.549/0.646, 0.654/0.750, 0.750/0.830.
+- Fitted weights (zeros omitted): fitA_ens11: io6_tokdec_blend_spatial 0.097, io4_tokdec_blend 0.006, io3_ptok4 0.036, io2_base_eval 0.004, io2_seed1 0.060, io2_seed2 0.050, io7_physmem 0.311, io6_tokdec_blend_spatial_s1 0.145, io6_tokdec_blend_spatial_s2 0.144, io7_wmattn 0.041, io7_analog 0.106; fitB_ens11: io6_tokdec_blend_spatial 0.018, io4_tokdec_blend 0.035, io3_ptok4 0.062, io2_base_eval 0.129, io2_seed1 0.053, io2_seed2 0.070, io7_physmem 0.232, io6_tokdec_blend_spatial_s1 0.130, io6_tokdec_blend_spatial_s2 0.129, io7_wmattn 0.053, io7_analog 0.090.
+
+| combination | val half A | val half B | test |
+|---|---|---|---|
+| ens7_mean | 0.13046 | 0.12069 | 0.12483 |
+| ens11_mean | 0.12985 | 0.12033 | 0.12444 |
+| fitA_ens11 | 0.12937 (fit) | 0.12039 | 0.12430 |
+| fitB_ens11 | 0.12959 | 0.12019 (fit) | 0.12428 |
+
+- Half table n: A 2,022,116 px, B 2,976,526 px, test 5,522,954 px. Out-of-sample fitted − ens11_mean: half B (fitA) +0.00006, half A (fitB) -0.00026; test fitA -0.00014, fitB -0.00016.
+- Members' half MAE (A / B): io6_tokdec_blend_spatial 0.1323/0.1235, io4_tokdec_blend 0.1331/0.1238, io3_ptok4 0.1341/0.1242, io2_base_eval 0.1371/0.1254, io2_seed1 0.1365/0.1258, io2_seed2 0.1368/0.1260, io7_physmem 0.1316/0.1232, io6_tokdec_blend_spatial_s1 0.1321/0.1231, io6_tokdec_blend_spatial_s2 0.1321/0.1229, io7_wmattn 0.1336/0.1242, io7_analog 0.1326/0.1234.
+- Results results/ensemble.json; figure figures/ens_models.png.
