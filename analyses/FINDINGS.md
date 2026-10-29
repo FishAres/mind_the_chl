@@ -1123,3 +1123,106 @@ Cost: λ 0.3 median 107 s/epoch, peak 11.0 GB allocated / 15.0 GB reserved; λ 0
 - Gradient ratio/corr lags 1, 2, 4 px: val 0.556/0.662, 0.617/0.742, 0.690/0.816; test 0.592/0.685, 0.653/0.761, 0.725/0.833 (val lag-1 pairs 2,067,873).
 - Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
 - Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01653 (n 138,579), 2-3 px +0.01323 (n 117,729), 4-7 px +0.01195 (n 157,936), 8-15 px +0.01191 (n 179,608), 16+ px +0.01658 (n 468,470).
+
+## ens33 step 1: gradient and spread-error calibration of ensembles (IO + Black Sea 4 km; 2026-10-28 22:34 UTC; eval only; analyses/ens33/)
+- Assumptions: lag-1 pairs = adjacent px along y or x on the same day with BOTH px hidden (postrun's standard pairs need only one hidden end; its lag-1 ratio/corr are listed as 'postrun'). Slope = OLS (with intercept) of true Δ on predicted Δ (1 = calibrated amplitude). Pair distance bin = the smaller of the two px distances to the nearest day-t visible px. Spread = per-px std of members (ddof 1); error = |ensemble mean − truth|; deciles of spread within each split; Spearman with ordinal ranks. io7_physmem is one model (no spread). io6_spatial_seed_mean = io6_tokdec_blend_spatial, _s1, _s2. Black Sea ensemble = blk4_mean_bestsub_val (blk4_tokdec_blend_spatial, blk4_physmem, blk4_tokdec_krig_signed, blk8_spatial_bsmem), chosen in step 3 by val MAE.
+
+| model | split | slope all | 1 | 2-3 | 4-7 | 8-15 | 16+ | ratio/corr both-hidden | ratio/corr postrun | n pairs |
+|---|---|---|---|---|---|---|---|---|---|---|
+| blk4_mean_bestsub_val | val | 1.088 | 1.045 | 1.048 | 1.093 | 1.114 | 1.103 | 0.528/0.645 | 0.550/0.670 | 1,906,765 |
+| blk4_mean_bestsub_val | test | 1.073 | 1.026 | 1.047 | 1.076 | 1.095 | 1.087 | 0.565/0.671 | 0.586/0.692 | 1,980,582 |
+| ens11_mean | val | 1.072 | 1.070 | 1.066 | 1.074 | 1.075 | 1.074 | 0.489/0.607 | 0.531/0.644 | 7,025,960 |
+| ens11_mean | test | 1.061 | 1.060 | 1.069 | 1.064 | 1.065 | 1.046 | 0.501/0.605 | 0.548/0.647 | 7,830,491 |
+| io7_physmem | val | 1.007 | 1.029 | 1.016 | 1.015 | 1.006 | 0.980 | 0.507/0.590 | 0.547/0.629 | 7,025,960 |
+| io7_physmem | test | 0.993 | 1.016 | 1.011 | 1.000 | 0.993 | 0.942 | 0.519/0.585 | 0.564/0.629 | 7,830,491 |
+| io6_spatial_seed_mean | val | 1.046 | 1.051 | 1.041 | 1.047 | 1.049 | 1.042 | 0.496/0.601 | 0.538/0.638 | 7,025,960 |
+| io6_spatial_seed_mean | test | 1.033 | 1.039 | 1.043 | 1.036 | 1.036 | 1.010 | 0.509/0.598 | 0.555/0.640 | 7,830,491 |
+
+- n pairs by distance bin (val): blk4_mean_bestsub_val 1 222,635, 2-3 206,722, 4-7 283,157, 8-15 330,942, 16+ 863,309; ens11_mean 1 1,577,929, 2-3 1,245,732, 4-7 1,479,418, 8-15 1,263,548, 16+ 1,459,333.
+
+| ensemble | split | Spearman all | 1 | 2-3 | 4-7 | 8-15 | 16+ | MAE spread decile 1 | decile 5 | decile 10 | n px |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| blk4_mean_bestsub_val | val | 0.415 | 0.386 | 0.351 | 0.314 | 0.275 | 0.246 | 0.05206 | 0.11881 | 0.31315 | 1,062,322 |
+| blk4_mean_bestsub_val | test | 0.476 | 0.419 | 0.393 | 0.368 | 0.337 | 0.347 | 0.04131 | 0.10298 | 0.33979 | 1,101,920 |
+| ens11_mean | val | 0.521 | 0.446 | 0.419 | 0.413 | 0.430 | 0.471 | 0.03953 | 0.07990 | 0.35090 | 4,998,642 |
+| ens11_mean | test | 0.512 | 0.440 | 0.416 | 0.411 | 0.436 | 0.497 | 0.04046 | 0.07854 | 0.36967 | 5,522,954 |
+| io6_spatial_seed_mean | val | 0.434 | 0.365 | 0.338 | 0.330 | 0.349 | 0.377 | 0.05556 | 0.08568 | 0.32049 | 4,998,642 |
+| io6_spatial_seed_mean | test | 0.425 | 0.359 | 0.337 | 0.334 | 0.358 | 0.401 | 0.05639 | 0.08462 | 0.33705 | 5,522,954 |
+
+- MAE by spread decile 1..10 (val): blk4_mean_bestsub_val 0.0521, 0.0722, 0.0876, 0.1025, 0.1188, 0.1340, 0.1508, 0.1680, 0.1939, 0.3131; ens11_mean 0.0395, 0.0493, 0.0584, 0.0680, 0.0799, 0.0966, 0.1210, 0.1582, 0.2198, 0.3509; io6_spatial_seed_mean 0.0556, 0.0606, 0.0671, 0.0753, 0.0857, 0.1005, 0.1215, 0.1542, 0.2083, 0.3205.
+- Figure figures/ens33_step1_calibration.png; results results/ens33.json (step1).
+
+## ens33 step 2: key-count-aware IO ensemble weights (IO; 2026-10-28 22:34 UTC; eval only; analyses/ens33/)
+- Assumptions: 11 ens11 members; per bin, weights ≥ 0 summing to 1 minimise hidden-px MAE on one val half (fit as analyses/io7/ensemble/report.fit; objective on the GPU). Halves A = 2001, 2013 (n 2,022,116 px), B = 2007, 2018 (n 2,976,526 px). Out of sample (oos) val = half A scored with the B fit + half B with the A fit. Test scored with the A fit and with the B fit. Key bins 0, 1-8, 9+ keys (kriging stencil, analyses/io7/keys.py); distance bins 1, 2-3, 4-7, 8-15, 16+ px. w_global = one weight vector, same procedure (#29 control). rw = postrun's real-cloud reweighted MAE (val target).
+
+| combination | val oos | Δ vs ens11 | test (A fit / B fit) | val no key | test no key (A/B) | val rw | test rw (A/B) |
+|---|---|---|---|---|---|---|---|
+| ens11_mean | 0.12418 | 0 | 0.12444 | 0.23796 | 0.26441 | 0.14852 | 0.16592 |
+| io7_physmem | 0.12656 | +0.00238 | 0.12689 | 0.23896 | 0.26097 | 0.15085 | 0.16745 |
+| w_global | 0.12411 | -0.00007 | 0.12430 / 0.12428 | 0.23622 | 0.25965 / 0.26215 | 0.14820 | 0.16477 / 0.16530 |
+| w_keybins | 0.12366 | -0.00052 | 0.12375 / 0.12386 | 0.23486 | 0.25820 / 0.25928 | 0.14767 | 0.16415 / 0.16450 |
+| w_distbins | 0.12384 | -0.00034 | 0.12397 / 0.12405 | 0.23530 | 0.25889 / 0.26070 | 0.14791 | 0.16445 / 0.16485 |
+
+| bin | n val px | ens11_mean val | w_keybins oos − ens11 | w_distbins oos − ens11 | w_global oos − ens11 | physmem weight A / B (own binning) |
+|---|---|---|---|---|---|---|
+| keys 0 | 639,038 | 0.23796 | -0.00309 | -0.00266 | -0.00174 | 0.476/0.336 |
+| keys 1-8 | 778,454 | 0.14493 | -0.00032 | -0.00005 | -0.00021 | 0.283/0.235 |
+| keys 9+ | 3,581,150 | 0.09937 | -0.00010 | +0.00001 | +0.00026 | 0.138/0.122 |
+| dist 1 | 1,213,097 | 0.07505 | -0.00007 | -0.00008 | +0.00022 | 0.096/0.078 |
+| dist 2-3 | 898,560 | 0.09798 | -0.00012 | -0.00004 | +0.00025 | 0.155/0.102 |
+| dist 4-7 | 1,048,246 | 0.11559 | -0.00022 | -0.00001 | +0.00017 | 0.223/0.151 |
+| dist 8-15 | 880,930 | 0.13604 | -0.00031 | -0.00009 | -0.00004 | 0.297/0.218 |
+| dist 16+ | 957,809 | 0.20949 | -0.00198 | -0.00155 | -0.00102 | 0.424/0.332 |
+
+- Weights (fit A; zeros omitted): w_keybins 0: io6_tokdec_blend_spatial 0.11, io7_physmem 0.48, io6_tokdec_blend_spatial_s1 0.14, io6_tokdec_blend_spatial_s2 0.18, io7_wmattn 0.06, io7_analog 0.04; w_keybins 1-8: io6_tokdec_blend_spatial 0.04, io4_tokdec_blend 0.09, io3_ptok4 0.05, io2_seed1 0.02, io2_seed2 0.00, io7_physmem 0.28, io6_tokdec_blend_spatial_s1 0.13, io6_tokdec_blend_spatial_s2 0.14, io7_wmattn 0.10, io7_analog 0.14; w_keybins 9+: io6_tokdec_blend_spatial 0.07, io3_ptok4 0.11, io2_base_eval 0.10, io2_seed1 0.09, io2_seed2 0.17, io7_physmem 0.14, io6_tokdec_blend_spatial_s1 0.13, io6_tokdec_blend_spatial_s2 0.08, io7_analog 0.11; w_distbins 1: io6_tokdec_blend_spatial 0.07, io4_tokdec_blend 0.01, io3_ptok4 0.15, io2_base_eval 0.13, io2_seed1 0.12, io2_seed2 0.15, io7_physmem 0.10, io6_tokdec_blend_spatial_s1 0.12, io6_tokdec_blend_spatial_s2 0.05, io7_wmattn 0.00, io7_analog 0.10; w_distbins 2-3: io6_tokdec_blend_spatial 0.11, io4_tokdec_blend 0.04, io3_ptok4 0.12, io2_base_eval 0.08, io2_seed1 0.10, io2_seed2 0.15, io7_physmem 0.16, io6_tokdec_blend_spatial_s1 0.10, io6_tokdec_blend_spatial_s2 0.03, io7_wmattn 0.01, io7_analog 0.10; w_distbins 4-7: io6_tokdec_blend_spatial 0.06, io4_tokdec_blend 0.01, io3_ptok4 0.09, io2_base_eval 0.06, io2_seed1 0.05, io2_seed2 0.15, io7_physmem 0.22, io6_tokdec_blend_spatial_s1 0.11, io6_tokdec_blend_spatial_s2 0.08, io7_wmattn 0.01, io7_analog 0.15; w_distbins 8-15: io6_tokdec_blend_spatial 0.01, io4_tokdec_blend 0.03, io3_ptok4 0.07, io2_base_eval 0.04, io2_seed1 0.05, io2_seed2 0.10, io7_physmem 0.30, io6_tokdec_blend_spatial_s1 0.11, io6_tokdec_blend_spatial_s2 0.13, io7_analog 0.17; w_distbins 16+: io6_tokdec_blend_spatial 0.11, io7_physmem 0.42, io6_tokdec_blend_spatial_s1 0.17, io6_tokdec_blend_spatial_s2 0.20, io7_wmattn 0.06, io7_analog 0.03;
+- Weights (fit B; zeros omitted): w_keybins 0: io4_tokdec_blend 0.07, io2_base_eval 0.02, io7_physmem 0.34, io6_tokdec_blend_spatial_s1 0.13, io6_tokdec_blend_spatial_s2 0.24, io7_wmattn 0.10, io7_analog 0.09; w_keybins 1-8: io6_tokdec_blend_spatial 0.05, io4_tokdec_blend 0.09, io3_ptok4 0.07, io2_base_eval 0.08, io2_seed1 0.03, io2_seed2 0.03, io7_physmem 0.23, io6_tokdec_blend_spatial_s1 0.15, io6_tokdec_blend_spatial_s2 0.13, io7_wmattn 0.08, io7_analog 0.06; w_keybins 9+: io6_tokdec_blend_spatial 0.06, io4_tokdec_blend 0.01, io3_ptok4 0.09, io2_base_eval 0.16, io2_seed1 0.11, io2_seed2 0.16, io7_physmem 0.12, io6_tokdec_blend_spatial_s1 0.11, io6_tokdec_blend_spatial_s2 0.08, io7_wmattn 0.01, io7_analog 0.09; w_distbins 1: io6_tokdec_blend_spatial 0.07, io4_tokdec_blend 0.03, io3_ptok4 0.11, io2_base_eval 0.14, io2_seed1 0.14, io2_seed2 0.14, io7_physmem 0.08, io6_tokdec_blend_spatial_s1 0.12, io6_tokdec_blend_spatial_s2 0.05, io7_wmattn 0.02, io7_analog 0.10; w_distbins 2-3: io6_tokdec_blend_spatial 0.06, io4_tokdec_blend 0.02, io3_ptok4 0.11, io2_base_eval 0.14, io2_seed1 0.12, io2_seed2 0.14, io7_physmem 0.10, io6_tokdec_blend_spatial_s1 0.11, io6_tokdec_blend_spatial_s2 0.09, io7_wmattn 0.00, io7_analog 0.09; w_distbins 4-7: io6_tokdec_blend_spatial 0.02, io3_ptok4 0.10, io2_base_eval 0.13, io2_seed1 0.09, io2_seed2 0.13, io7_physmem 0.15, io6_tokdec_blend_spatial_s1 0.14, io6_tokdec_blend_spatial_s2 0.10, io7_wmattn 0.05, io7_analog 0.09; w_distbins 8-15: io6_tokdec_blend_spatial 0.03, io4_tokdec_blend 0.01, io3_ptok4 0.05, io2_base_eval 0.13, io2_seed1 0.02, io2_seed2 0.11, io7_physmem 0.22, io6_tokdec_blend_spatial_s1 0.16, io6_tokdec_blend_spatial_s2 0.10, io7_wmattn 0.08, io7_analog 0.09; w_distbins 16+: io4_tokdec_blend 0.09, io3_ptok4 0.00, io2_base_eval 0.11, io7_physmem 0.33, io6_tokdec_blend_spatial_s1 0.11, io6_tokdec_blend_spatial_s2 0.21, io7_wmattn 0.07, io7_analog 0.08;
+- n: val 4,998,642 hidden px (no key 639,038); test 5,522,954 (no key 448,923).
+- Figure figures/ens33_step2_io_weights.png; results results/ens33.json (step2_io).
+
+## ens33 step 3: Black Sea 4 km ensembles from existing blk4 runs (blk4; 2026-10-28 22:34 UTC; eval only; analyses/ens33/)
+- Assumptions: members = blk4_tokdec_blend_spatial, blk4_physmem, blk4_tokdec_blend, blk4_tokdec_krig, blk4_tokdec_krig_signed, blk8_spatial_bsmem, blk8_spatial_p12, blk4_t3d_c4_gdl100_lam0_b16_50ep, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (the 7 named runs + the two postrun blk4_t3d_* references; all share scored days and hidden px). Other blk4_t3d_* runs with the same days / hidden px, not included: blk4_t3d_c4_gdl100_lam0, blk4_t3d_c4_gdl100_lam0_b16_50ep_geo, blk4_t3d_c4_gdl100_sl_lam0p3, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_geo, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_w96, blk4_t3d_c4_gdl100_sl_lam1_b16_stop12. Best subset = lowest val MAE over all 511 non-empty subsets (val in-sample for the choice; also chosen on one val half and scored on the other). Halves A = 2017, B = 2021 (one val year each). Key-aware weights as step 2 (out of sample val = cross-fit halves). grad lag-1 = postrun standard (full arrays; weighted rows: non-hidden px = mean of all 9).
+
+| model | val | test | val no key | test no key | val rw | test rw | grad lag-1 ratio/corr val | test |
+|---|---|---|---|---|---|---|---|---|
+| blk4_tokdec_blend_spatial | 0.14119 | 0.13398 | 0.25408 | 0.24627 | 0.16460 | 0.16054 | 0.556/0.665 | 0.593/0.687 |
+| blk8_spatial_bsmem | 0.14139 | 0.13485 | 0.25231 | 0.25111 | 0.16477 | 0.16173 | 0.556/0.662 | 0.592/0.685 |
+| blk4_physmem | 0.14226 | 0.13656 | 0.25097 | 0.24932 | 0.16533 | 0.16370 | 0.558/0.660 | 0.590/0.682 |
+| blk4_tokdec_blend | 0.14316 | 0.13592 | 0.25651 | 0.25063 | 0.16730 | 0.16299 | 0.554/0.662 | 0.590/0.685 |
+| blk4_tokdec_krig_signed | 0.14411 | 0.13550 | 0.25963 | 0.25052 | 0.16884 | 0.16246 | 0.564/0.659 | 0.600/0.683 |
+| blk4_tokdec_krig | 0.14518 | 0.13648 | 0.25556 | 0.25549 | 0.16956 | 0.16436 | 0.559/0.658 | 0.598/0.682 |
+| blk8_spatial_p12 | 0.14913 | 0.14141 | 0.25144 | 0.24969 | 0.17279 | 0.16873 | 0.546/0.649 | 0.582/0.669 |
+| blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 | 0.14979 | 0.14300 | 0.26804 | 0.27007 | 0.17529 | 0.17237 | 0.541/0.658 | 0.583/0.680 |
+| blk4_t3d_c4_gdl100_lam0_b16_50ep | 0.15611 | 0.15089 | 0.27578 | 0.27888 | 0.18118 | 0.17985 | 0.527/0.642 | 0.563/0.662 |
+| mean_all9 | 0.14109 | 0.13415 | 0.25081 | 0.24882 | 0.16479 | 0.16121 | 0.538/0.670 | 0.576/0.692 |
+| mean_core7 | 0.14009 | 0.13290 | 0.24841 | 0.24514 | 0.16353 | 0.15958 | 0.545/0.670 | 0.582/0.693 |
+| mean_bestsub_val | 0.13931 | 0.13260 | 0.24944 | 0.24544 | 0.16265 | 0.15919 | 0.550/0.670 | 0.586/0.692 |
+| w_global (oos val; test A fit) | 0.13954 | 0.13247 | 0.24943 | 0.24515 | 0.16286 | 0.15906 | 0.549/0.669 | 0.586/0.692 |
+| w_global (test B fit) | 0.13954 | 0.13297 | 0.24943 | 0.24578 | 0.16286 | 0.15961 | 0.549/0.669 | 0.586/0.691 |
+| w_keybins (oos val; test A fit) | 0.13941 | 0.13249 | 0.24773 | 0.24588 | 0.16252 | 0.15913 | 0.552/0.669 | 0.590/0.691 |
+| w_keybins (test B fit) | 0.13941 | 0.13287 | 0.24773 | 0.24507 | 0.16252 | 0.15949 | 0.552/0.669 | 0.587/0.691 |
+| w_distbins (oos val; test A fit) | 0.13951 | 0.13250 | 0.24876 | 0.24485 | 0.16278 | 0.15910 | 0.550/0.669 | 0.587/0.692 |
+| w_distbins (test B fit) | 0.13951 | 0.13297 | 0.24876 | 0.24605 | 0.16278 | 0.15973 | 0.550/0.669 | 0.586/0.691 |
+
+- Best single by val: blk4_tokdec_blend_spatial. Plain mean beats it on val: mean_all9 True, mean_core7 True, mean_bestsub_val True.
+- Best subsets: val blk4_tokdec_blend_spatial, blk4_physmem, blk4_tokdec_krig_signed, blk8_spatial_bsmem; chosen on half A: blk4_tokdec_blend_spatial, blk4_physmem, blk4_tokdec_krig_signed, blk8_spatial_bsmem (half B MAE 0.14180 vs mean_all9 0.14410, best single 0.14389); chosen on half B: blk4_tokdec_blend_spatial, blk4_physmem, blk8_spatial_bsmem (half A MAE 0.13679 vs mean_all9 0.13754, best single 0.13799).
+- Top 5 subsets by val MAE: blk4_tokdec_blend_spatial+blk4_physmem+blk4_tokdec_krig_signed+blk8_spatial_bsmem 0.13931; blk4_tokdec_blend_spatial+blk4_physmem+blk8_spatial_bsmem 0.13946; blk4_tokdec_blend_spatial+blk4_physmem+blk4_tokdec_blend+blk4_tokdec_krig_signed+blk8_spatial_bsmem 0.13954; blk4_tokdec_blend_spatial+blk4_physmem+blk4_tokdec_krig+blk8_spatial_bsmem 0.13964; blk4_tokdec_blend_spatial+blk4_physmem+blk4_tokdec_krig+blk4_tokdec_krig_signed+blk8_spatial_bsmem 0.13967.
+- w_keybins weights (fit A | fit B; zeros omitted): 0: blk4_physmem 0.28, blk4_tokdec_krig 0.15, blk8_spatial_p12 0.49, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.08 | blk4_physmem 0.36, blk8_spatial_bsmem 0.36, blk8_spatial_p12 0.28; 1-8: blk4_tokdec_blend_spatial 0.52, blk4_physmem 0.31, blk4_tokdec_krig_signed 0.09, blk8_spatial_p12 0.07, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.01 | blk4_tokdec_blend_spatial 0.32, blk4_physmem 0.47, blk4_tokdec_krig_signed 0.04, blk8_spatial_bsmem 0.17; 9+: blk4_tokdec_blend_spatial 0.35, blk4_physmem 0.12, blk4_tokdec_krig 0.04, blk4_tokdec_krig_signed 0.27, blk8_spatial_bsmem 0.22 | blk4_tokdec_blend_spatial 0.24, blk4_physmem 0.30, blk4_tokdec_krig_signed 0.13, blk8_spatial_bsmem 0.33;
+- w_distbins weights (fit A | fit B; zeros omitted): 1: blk4_tokdec_blend_spatial 0.20, blk4_physmem 0.20, blk4_tokdec_blend 0.12, blk4_tokdec_krig 0.19, blk4_tokdec_krig_signed 0.13, blk8_spatial_bsmem 0.13, blk8_spatial_p12 0.01, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.02 | blk4_tokdec_blend_spatial 0.19, blk4_physmem 0.22, blk4_tokdec_blend 0.08, blk4_tokdec_krig 0.22, blk4_tokdec_krig_signed 0.16, blk8_spatial_bsmem 0.14; 2-3: blk4_tokdec_blend_spatial 0.30, blk4_physmem 0.13, blk4_tokdec_blend 0.09, blk4_tokdec_krig 0.11, blk4_tokdec_krig_signed 0.14, blk8_spatial_bsmem 0.20, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.04 | blk4_tokdec_blend_spatial 0.30, blk4_physmem 0.15, blk4_tokdec_krig 0.20, blk4_tokdec_krig_signed 0.13, blk8_spatial_bsmem 0.18, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.05; 4-7: blk4_tokdec_blend_spatial 0.28, blk4_physmem 0.07, blk4_tokdec_blend 0.10, blk4_tokdec_krig_signed 0.31, blk8_spatial_bsmem 0.19, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.06 | blk4_tokdec_blend_spatial 0.29, blk4_physmem 0.18, blk4_tokdec_blend 0.00, blk4_tokdec_krig 0.21, blk4_tokdec_krig_signed 0.15, blk8_spatial_bsmem 0.16, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.02; 8-15: blk4_tokdec_blend_spatial 0.11, blk4_physmem 0.16, blk4_tokdec_blend 0.02, blk4_tokdec_krig_signed 0.46, blk8_spatial_bsmem 0.25 | blk4_tokdec_blend_spatial 0.12, blk4_physmem 0.27, blk4_tokdec_blend 0.14, blk4_tokdec_krig 0.04, blk4_tokdec_krig_signed 0.21, blk8_spatial_bsmem 0.22; 16+: blk4_tokdec_blend_spatial 0.45, blk4_physmem 0.19, blk4_tokdec_krig 0.07, blk4_tokdec_krig_signed 0.09, blk8_spatial_bsmem 0.16, blk8_spatial_p12 0.04 | blk4_tokdec_blend_spatial 0.22, blk4_physmem 0.38, blk8_spatial_bsmem 0.40;
+- n: val 1,062,322 hidden px (182 days; half A 486,671, B 575,651; no key 62,146); test 1,101,920 (183 days; no key 59,074).
+- Figure figures/ens33_step3_blk4.png; results results/ens33.json (step3_blk4).
+
+## blk7 postrun: blk9_spatial_pool3 (Black Sea 4 km; 2026-10-28 23:44 UTC; analyses/io7/postrun.py)
+- Run: store blk4, crop True, val_stride 4, t3d_stem tokdec, tokdec_blend True, tokdec_spatial 2, tokdec_krig False, krig_signed False, physmem False, physmem_stride2 False, context 8, seed 0, epochs 60, batch 8, lr 0.001, lam 0.0, best_epoch 59, tokdec_spatial_pool 3. Val n: 182 days, 1,062,322 hidden px; test n: 183 days, 1,101,920.
+- Val / test MAE 0.141101 / 0.134160; RMSE 0.2311 / 0.2275; bias -0.0079 / -0.0230; non-finite 0 / 0.
+- Δ vs blk4_tokdec_blend_spatial (0.141189 / 0.133981): val -0.00009, test +0.00018; ≥ 1 key +0.00016 / +0.00031; no key -0.00408 / -0.00221; real-cloud rw -0.00039 / +0.00004.
+- Δ vs blk4_physmem (0.142260 / 0.136556): val -0.00116, test -0.00240; ≥ 1 key -0.00117 / -0.00224; no key -0.00098 / -0.00525; real-cloud rw -0.00113 / -0.00313.
+- Δ vs blk4_tokdec_blend (0.143159 / 0.135924): val -0.00206, test -0.00176; ≥ 1 key -0.00178 / -0.00149; no key -0.00652 / -0.00657; real-cloud rw -0.00310 / -0.00241.
+- Δ vs blk4_tokdec_krig (0.145181 / 0.136485): val -0.00408, test -0.00233; ≥ 1 key -0.00399 / -0.00181; no key -0.00556 / -0.01143; real-cloud rw -0.00536 / -0.00378.
+- Δ vs blk4_tokdec_krig_signed (0.144113 / 0.135502): val -0.00301, test -0.00134; ≥ 1 key -0.00260 / -0.00105; no key -0.00963 / -0.00645; real-cloud rw -0.00464 / -0.00189.
+- Δ vs blk4_t3d_c4_gdl100_lam0_b16_50ep (0.156113 / 0.150893): val -0.01501, test -0.01673; ≥ 1 key -0.01434 / -0.01571; no key -0.02579 / -0.03482; real-cloud rw -0.01698 / -0.01927.
+- Δ vs blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 (0.149787 / 0.142998): val -0.00869, test -0.00884; ≥ 1 key -0.00811 / -0.00787; no key -0.01804 / -0.02601; real-cloud rw -0.01109 / -0.01179.
+- Key split val / test: ≥ 1 key 0.13433 (n 1,000,176) / 0.12793 (n 1,042,846); no key 0.25000 (n 62,146) / 0.24406 (n 59,074).
+- Real-cloud reweighted MAE val / test: 0.16420 / 0.16058 (target: val real-cloud px, n 2,340,558; uncovered mass 0.0000 / 0.0000; test with the test days' real-cloud target 0.15911); blk4_tokdec_blend_spatial 0.16460 / 0.16054, blk4_physmem 0.16533 / 0.16370, blk4_tokdec_blend 0.16730 / 0.16299, blk4_tokdec_krig 0.16956 / 0.16436, blk4_tokdec_krig_signed 0.16884 / 0.16246, blk4_t3d_c4_gdl100_lam0_b16_50ep 0.18118 / 0.17985, blk4_t3d_c4_gdl100_sl_lam0p3_b16_50ep_cont50_lr1e-4_cont50 0.17529 / 0.17237.
+- Gradient ratio/corr lags 1, 2, 4 px: val 0.556/0.665, 0.617/0.744, 0.690/0.818; test 0.593/0.687, 0.654/0.763, 0.726/0.835 (val lag-1 pairs 2,067,873).
+- Note: blk4_t3d_* references use another recipe (conv ±4, batch 16, 50 epochs; the _sl_lam0p3_..._cont50 run: λ 0.3, semi-Lagrangian, 50 epochs then two 50-epoch continuations, the last at lr 1e-4); blk7 runs: batch 8, 60-epoch cosine, lr 1e-3, λ 0. Scored days: every 4th val / test day (--val-stride 4).
+- Val MAE gain over conv ±4 b16 50 ep (blk4_t3d_c4_gdl100_lam0_b16_50ep) by distance to visible px (conv − run): 1 px +0.01657 (n 138,579), 2-3 px +0.01340 (n 117,729), 4-7 px +0.01204 (n 157,936), 8-15 px +0.01149 (n 179,608), 16+ px +0.01730 (n 468,470).

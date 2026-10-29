@@ -1,6 +1,6 @@
 # Training runs: index
 
-Generated 2026-10-27 04:17 by `python -m chl_cnn.runs_index` (448 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
+Generated 2026-10-28 23:46 by `python -m chl_cnn.runs_index` (449 runs). What each round found, and why it was run: [analyses/FINDINGS.md](../analyses/FINDINGS.md).
 
 - **val / test MAE**: hidden-pixel MAE in ln CHL (fake clouds from a donor day). Best val epoch; test at that epoch. Only comparable within one region and one `val_stride` / `donor_exclude` setting.
 - **settings**: non-default flags only (see the trainer docstrings). `stop_epoch=N`: the schedule spans `epochs` but training stopped at N.
@@ -99,7 +99,7 @@ Generated 2026-10-27 04:17 by `python -m chl_cnn.runs_index` (448 runs). What ea
 | deq_unroll_k1 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1449 | 0.1484 | 12 | 2026-10-11 | done, weights |
 | deq_and24 | Indian Ocean | deq feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=12 year_input phys=upwind batch=8 | 0.1581 | 0.1632 | 12 | 2026-10-13 | done, weights |
 
-## pinn/t3d (232 runs)
+## pinn/t3d (233 runs)
 
 | run | region | settings | val MAE | test MAE | epochs | finished | status |
 |---|---|---|---|---|---|---|---|
@@ -127,6 +127,7 @@ Generated 2026-10-27 04:17 by `python -m chl_cnn.runs_index` (448 runs). What ea
 | blk4_tokdec_krig_signed | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1441 | 0.1355 | 60 | 2026-10-26 | done, weights |
 | blk8_spatial_bsmem | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1414 | 0.1348 | 60 | 2026-10-27 | done, weights |
 | blk8_spatial_p12 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1491 | 0.1414 | 60 | 2026-10-27 | done, weights |
+| blk9_spatial_pool3 | Black Sea 4 km | store=blk4 temporal3d feat=8 ctx=8 vis_weight=0.1 grad_weight=100.0 width=64 donor_window=15 epochs=60 year_input blocks=8 phys=semi-lagrangian batch=8 | 0.1411 | 0.1342 | 60 | 2026-10-28 | done, weights |
 | t3d_dil_c2 | Indian Ocean | temporal3d feat=9 ctx=2 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1406 | 0.1434 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4 | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=20 year_input phys=upwind batch=8 | 0.1378 | 0.1398 | 20 | 2026-10-14 | done, weights |
 | t3d_dil_c4_60ep | Indian Ocean | temporal3d feat=9 ctx=4 vis_weight=0.1 width=64 donor_window=15 epochs=60 year_input phys=upwind batch=8 | 0.1331 | 0.1344 | 60 | 2026-10-14 | done, weights |

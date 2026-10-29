@@ -255,6 +255,8 @@ def cfg_note(run):
                 "physmem_stride2", "context", "seed", "epochs", "batch", "lr", "lam", "best_epoch")
     keys = keys + tuple(k for k in ("physmem", "rw_loss", "rw_cap", "bsmem", "ptok_patch") if c.get("rw_loss") or c.get("bsmem")    # io8 / blk8
                         or c.get("ptok_patch", 4) != 4 if k in c and k not in keys)
+    if c.get("tokdec_spatial_pool", 1) != 1:                # blk9 two-level tokens
+        keys = keys + ("tokdec_spatial_pool",)
     return ", ".join(f"{k} {c.get(k)}" for k in keys if k in c)
 
 

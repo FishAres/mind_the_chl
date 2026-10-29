@@ -25,6 +25,12 @@ Context reaches the backbone only through patch tokens; day t also enters at ful
      token per ocean patch), N pre-norm self-attention blocks over all ocean-patch tokens of the sample (global, fused SDPA, the pooling's
      heads, width D) with a learned 2D relative-position bias per (patch offset, head) (zero init; the patch-position embedding is already in
      the tokens); output projection and MLP output zero-initialised, so each block starts as the identity. Then the decoder as before.
+--tokdec-spatial-pool S (blk9, 2026-10-28; bridge CHL Log #33; default 1 = off, unchanged): two token levels. Decoding stays on the P-px
+     tokens; each spatial block instead attends over coarse tokens of S x S P-patches (P 4, S 3 -> 12 px). Per block: coarse token = mean of
+     the block input tokens of its ocean P-patches (unweighted; land patches are not tokens, so they never enter; coarse cells with no ocean
+     patch are not tokens; the patch grid is padded with land patches to a multiple of S); LayerNorm, self-attention over the coarse tokens
+     with a learned relative-position bias per (coarse offset, head), output projection (zero init); the coarse output is copied to each
+     of its P-patches (nearest upsampling) and added residually; then the MLP on the P-patch tokens as before (output zero init).
 extra_in (default 0; io6, chl_cnn/krig.py KrigTokDecNet): extra backbone input channels supplied by a subclass's extra_parts().
 
 HOOKS["recorder"] (default None): called as f(dict) after every forward with emb (B, Np, T, D: patch embedding + embeddings, before
@@ -48,7 +54,7 @@ class TokDecNet(nn.Module):
     """forward(x3d, x_static, day_ok, clim3d) -> backbone output (B, 3, H, W); inputs as ptok.PatchTokenNet."""
 
     def __init__(self, c_day, n_static, T, t_index, ocean, P=4, dim=128, ch=32, heads=4, layers=2, blend=False, sst_index=0,
-                 backbone="dilated", width=64, spatial=0, extra_in=0, **backbone_kw):
+                 backbone="dilated", width=64, spatial=0, extra_in=0, spatial_pool=1, **backbone_kw):
         super().__init__()
         assert backbone == "dilated" and P % 2 == 0 and dim % heads == 0
         self.c_day, self.T, self.ti, self.P, self.D, self.C, self.h = c_day, T, t_index, P, dim, ch, heads
@@ -79,8 +85,21 @@ class TokDecNet(nn.Module):
             self.none_logit = nn.Parameter(torch.zeros(()))
         self.backbone = build_model(backbone, ch + c_day + n_static + (3 if blend else 0) + extra_in, width=width, **backbone_kw)
         self.out_channels = self.backbone.out_channels
-        self.n_spatial = spatial
-        if spatial:                                            # io6: spatial self-attention over the pooled patch tokens (opt-in)
+        self.n_spatial, self.sp_pool = spatial, spatial_pool
+        if spatial and spatial_pool > 1:                       # blk9: spatial attention over S x S pooled patch tokens (opt-in)
+            S = spatial_pool
+            py, px = self.patch_idx // self.nPx, self.patch_idx % self.nPx
+            self.nCy, self.nCx = -(-self.nPy // S), -(-self.nPx // S)
+            cflat, parent = torch.unique((py // S) * self.nCx + px // S, sorted=True, return_inverse=True)
+            self.Nc = int(cflat.numel())
+            cy, cx = cflat // self.nCx, cflat % self.nCx
+            rel = (cy.view(-1, 1) - cy.view(1, -1) + self.nCy - 1) * (2 * self.nCx - 1) + (cx.view(-1, 1) - cx.view(1, -1) + self.nCx - 1)
+            self.register_buffer("rel_idx", rel, persistent=False)                    # (Nc, Nc) index into the coarse offset table
+            self.register_buffer("sp_parent", parent, persistent=False)               # (Np,) coarse cell of each ocean patch
+            self.register_buffer("sp_count", torch.bincount(parent, minlength=self.Nc).float(), persistent=False)   # (Nc,) ocean patches per cell
+            self.register_buffer("sp_cell", cflat, persistent=False)                  # (Nc,) flat index in the nCy x nCx grid
+            self.sp_blocks = nn.ModuleList([_PooledSpatialBlock(dim, heads, (2 * self.nCy - 1) * (2 * self.nCx - 1)) for _ in range(spatial)])
+        elif spatial:                                          # io6: spatial self-attention over the pooled patch tokens (opt-in)
             py, px = self.patch_idx // self.nPx, self.patch_idx % self.nPx
             rel = (py.view(-1, 1) - py.view(1, -1) + self.nPy - 1) * (2 * self.nPx - 1) + (px.view(-1, 1) - px.view(1, -1) + self.nPx - 1)
             self.register_buffer("rel_idx", rel, persistent=False)                    # (Np, Np) index into the relative-offset table
@@ -136,7 +155,7 @@ class TokDecNet(nn.Module):
         if self.n_spatial:
             ps = pooled.view(B, self.Np, self.D)
             for blk in self.sp_blocks:
-                ps = blk(ps, self.rel_idx)
+                ps = blk(ps, self.rel_idx) if self.sp_pool <= 1 else blk(ps, self.rel_idx, self.sp_parent, self.sp_count)
             pooled = ps.reshape(N, self.D)
         z = torch.cat([pooled, tf[:, self.ti]], -1)                                  # (N, 2D)
         P = self.P
@@ -201,4 +220,20 @@ class _SpatialBlock(nn.Module):
         bias = self.rel[rel_idx].permute(2, 0, 1).unsqueeze(0).to(q.dtype)          # (1, heads, Np, Np)
         o = F.scaled_dot_product_attention(q, k, v, attn_mask=bias.expand(B, -1, -1, -1))
         x = x + self.proj(o.transpose(1, 2).reshape(B, Np, d))
+        return x + self.ff(self.n2(x))
+
+
+class _PooledSpatialBlock(_SpatialBlock):
+    """blk9 (--tokdec-spatial-pool S): _SpatialBlock whose attention runs on coarse tokens (mean over the ocean patches of S x S patches);
+    the attention output is copied back to the patches (nearest) and added residually; the MLP stays per patch."""
+
+    def forward(self, x, rel_idx, parent, count):              # x (B, Np, d); rel_idx (Nc, Nc); parent (Np,) cell index; count (Nc,)
+        B, Np, d = x.shape
+        Nc = count.numel()
+        xc = x.float().new_zeros((B, Nc, d)).index_add_(1, parent, x.float()) / count.view(1, Nc, 1)   # mask-aware mean (ocean patches)
+        q, k, v = self.qkv(self.n1(xc)).view(B, Nc, 3, self.h, d // self.h).permute(2, 0, 3, 1, 4)
+        bias = self.rel[rel_idx].permute(2, 0, 1).unsqueeze(0).to(q.dtype)          # (1, heads, Nc, Nc)
+        o = F.scaled_dot_product_attention(q, k, v, attn_mask=bias.expand(B, -1, -1, -1))
+        o = self.proj(o.transpose(1, 2).reshape(B, Nc, d))                           # (B, Nc, d)
+        x = x + o[:, parent]                                                         # nearest upsampling to the patches
         return x + self.ff(self.n2(x))

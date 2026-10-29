@@ -40,6 +40,8 @@ Working rules (token efficiency): bridge CHL doc Brief → "Working rules for CC
 - blk7 queue (2026-10-26): 5 IO attention configs on `--store blk4` (~9 h), same layout in ~/mind_the_chl_gap/logs/blk7/ (session
   blk7_queue); `train_oom` retries a CUDA OOM once at the next smaller batch (`<run>_b<k>`). Notes: analyses/blk7/NOTES.md.
 - q8 queue (2026-10-26, #29): io7_physmem_s1, io8_physmem_rwloss, blk8_spatial_p12, blk8_spatial_bsmem (~9 h), ~/mind_the_chl_gap/logs/q8/ (session q8_queue; starts tmux autostop when done). Notes: analyses/io8/NOTES.md.
+- q9 (2026-10-28, #33, done #35): blk9_spatial_pool3 (2-level tokens), ~/mind_the_chl_gap/logs/q9/. Notes: analyses/blk9/NOTES.md.
+- Ensembles (#33-35): not frozen; members/weights/scores in analyses/ens33/results/ENSEMBLES.md.
 
 ## Gotchas
 - Don't retrain controls: compare new options at the same epoch against the existing run's history.json (`--stop-epoch`).

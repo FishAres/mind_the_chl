@@ -174,6 +174,8 @@ Learned kriging and spatial token attention (io6 track, 2026-10-24; analyses/io6
   --tokdec-spatial N   with --t3d-stem tokdec: N pre-norm spatial self-attention blocks over the pooled ocean-patch tokens of each sample (global,
                   fused SDPA, --tokdec-heads heads, width --tokdec-dim, learned 2D relative-position bias per (patch offset, head); output
                   projections zero-initialised) between the temporal pooling and the decoder (chl_cnn/tokdec.py).
+  --tokdec-spatial-pool S   blk9 (default 1 = off): the spatial blocks attend over coarse tokens = mean of the ocean-patch tokens of S x S
+                  patches (P 4, S 3 -> 12 px); attention output copied back to the patches (nearest) and added; MLP and decoder stay at P.
   --physmem [--physmem-blend-k 8] [--physmem-stride2]   io7 (chl_cnn/physmem.py): with --t3d-stem tokdec --tokdec-blend; tokens over the whole
                   window (e.g. --context 15 --feat-context 15), blend on +-K only; past-only physics summaries of day t (wind-stress curl, Ekman
                   pumping, alongshore stress, SSTA, dMLD over [t-30, t-1] and [t-60, t-31]) added to every day token. --physmem-stride2: even
@@ -421,6 +423,7 @@ def parse(argv=None):
     p.add_argument("--krig-impl", choices=["triton", "torch"], default="triton", help="--tokdec-krig: fused Triton kernels or the PyTorch path")
     p.add_argument("--krig-prec", choices=["tf32", "ieee", "tf32x3"], default="tf32", help="--krig-impl triton: tl.dot input precision")
     p.add_argument("--tokdec-spatial", type=int, default=0, help="--t3d-stem tokdec: spatial self-attention blocks over the pooled patch tokens")
+    p.add_argument("--tokdec-spatial-pool", type=int, default=1, help="blk9 --tokdec-spatial: attend over S x S pooled patch tokens (1 = off)")
     from . import analog as AN                                 # io7 analog tokens (--analog*, default off = unchanged)
     AN.add_args(p)
     from . import wmattn as WMA                                # io7 water-mass attention (--wm-*, default off = unchanged)
@@ -480,6 +483,8 @@ def parse(argv=None):
         p.error("--tokdec-krig / --tokdec-spatial need --t3d-stem tokdec")
     if a.tokdec_krig and a.tokdec_blend:
         p.error("--tokdec-krig replaces --tokdec-blend; use one of them")
+    if a.tokdec_spatial_pool != 1 and (a.tokdec_spatial_pool < 1 or not a.tokdec_spatial or a.tokdec_krig or a.wm_attn or a.physmem or a.bsmem or a.analog):
+        p.error("--tokdec-spatial-pool S (S >= 2) needs --tokdec-spatial N and the plain token decoder (no --tokdec-krig / --wm-attn / --physmem / --bsmem / --analog)")
     if (a.krig_signed or a.krig_advect) and not a.tokdec_krig:
         p.error("--krig-signed / --krig-advect need --tokdec-krig")
     if a.tokdec_krig and (a.context_before < 4 or a.context_after < 4 or a.krig_dim % a.krig_heads):
@@ -572,7 +577,7 @@ RESUME_NEW_DEFAULTS = {"donor_exclude": 0, "eval_only": False, "init_from": None
                        "leak_day": None, "leak_offset": 0, "leak_delta": 1.0, "leak_what": "hidden", "ablate": None, "ablate_mode": "mean",
                        "tokdec_krig": False, "krig_dim": 32, "krig_heads": 4, "krig_dv": 16, "krig_chunk": 32, "krig_signed": False,
                        "krig_advect": False, "krig_s0": 0.25, "krig_impl": "triton", "krig_prec": "tf32", "tokdec_spatial": 0,
-                       "physmem": False, "physmem_blend_k": 8, "physmem_stride2": False}
+                       "tokdec_spatial_pool": 1, "physmem": False, "physmem_blend_k": 8, "physmem_stride2": False}
 from .analog import RESUME_DEFAULTS as _ANALOG_DEFAULTS       # io7 analog tokens
 RESUME_NEW_DEFAULTS.update(_ANALOG_DEFAULTS)
 from .wmattn import RESUME_DEFAULTS as _WM_DEFAULTS           # io7 water-mass attention
@@ -1335,7 +1340,8 @@ def main(argv=None):
             model = TokDecNet(c_day, n_static, n_days, win_offs.index(0), T(ocean), P=a.ptok_patch, dim=a.tokdec_dim, ch=a.tokdec_ch,
                               heads=a.tokdec_heads, layers=a.tokdec_layers, blend=a.tokdec_blend, sst_index=a.features.index("sst"),
                               backbone=a.t3d_backbone, width=a.width, dropout=a.dropout, out_channels=3, dilations=dilations,
-                              **(dict(spatial=a.tokdec_spatial) if a.tokdec_spatial else {})).to(dev)
+                              **(dict(spatial=a.tokdec_spatial) if a.tokdec_spatial else {}),
+                              **(dict(spatial_pool=a.tokdec_spatial_pool) if a.tokdec_spatial_pool != 1 else {})).to(dev)
         if a.analog:                                           # io7: analog-token cross-attention on the pooled tokens (chl_cnn/analog.py)
             from . import analog as AN
             t_an = time.time()
@@ -1347,7 +1353,9 @@ def main(argv=None):
         n_bb = count_params(model.backbone)
         print(f"token-decoder stem: {n_days} days, P {a.ptok_patch} -> {model.Np} ocean patches of {model.nPy} x {model.nPx}, dim {a.tokdec_dim}, "
               f"heads {a.tokdec_heads}, layers {a.tokdec_layers}, decoded ch {a.tokdec_ch}, blend {a.tokdec_blend}"
-              f"{f', spatial blocks {a.tokdec_spatial}' if a.tokdec_spatial else ''}{', kriging' if a.tokdec_krig else ''} -> {in_ch} ch -> dilated backbone "
+              f"{f', spatial blocks {a.tokdec_spatial}' if a.tokdec_spatial else ''}"
+              f"{f' (pooled {a.tokdec_spatial_pool} x {a.tokdec_spatial_pool} -> {model.Nc} coarse tokens of {model.nCy} x {model.nCx})' if a.tokdec_spatial_pool != 1 else ''}"
+              f"{', kriging' if a.tokdec_krig else ''} -> {in_ch} ch -> dilated backbone "
               f"(width {a.width})  stem params {count_params(model) - n_bb}, backbone {n_bb}", flush=True)
     elif a.model == "temporal3d" and a.t3d_stem == "attn":
         from .tattn import TemporalAttnNet
